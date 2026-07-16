@@ -4,7 +4,10 @@ const CONTROL_TYPES = new Set([
   'candidate.propose',
   'grant.consume',
   'chat.result',
-  'risk.detected'
+  'risk.detected',
+  'approval.list',
+  'approval.create',
+  'approval.setStatus'
 ])
 
 function failure(code, message) {
@@ -22,7 +25,7 @@ function derivedData(data, workerId, runRecordId) {
   return { ...data, workerId, runRecordId }
 }
 
-export function createWorkerControlService({ policy, task, scheduleStop = setImmediate } = {}) {
+export function createWorkerControlService({ policy, task, approval, scheduleStop = setImmediate } = {}) {
   if (!policy || typeof policy !== 'object') throw new TypeError('policy is required')
   if (!task || typeof task.stop !== 'function') throw new TypeError('task.stop is required')
   if (typeof scheduleStop !== 'function') throw new TypeError('scheduleStop must be a function')
@@ -43,6 +46,13 @@ export function createWorkerControlService({ policy, task, scheduleStop = setImm
         scheduleStop(() => { void Promise.resolve().then(() => task.stop({ workerId, policyStop: true })).catch(() => {}) })
         return state
       }
+      case 'approval.list':
+      case 'approval.create':
+      case 'approval.setStatus':
+        if (!approval || typeof approval.list !== 'function' || typeof approval.create !== 'function' || typeof approval.setStatus !== 'function') throw failure('APPROVAL_UNAVAILABLE', 'backend approval operations are unavailable')
+        if (type === 'approval.list') return approval.list(routedData)
+        if (type === 'approval.create') return approval.create(routedData.request)
+        return approval.setStatus(routedData)
     }
   }
 

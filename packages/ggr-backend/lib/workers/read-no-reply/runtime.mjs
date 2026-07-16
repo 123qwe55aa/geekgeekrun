@@ -1,10 +1,8 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { createHash, randomUUID } from 'node:crypto'
 
 import { createRuntimePaths } from '../../runtime-paths.mjs'
-import { createApprovalService } from '../../services/approval-service.mjs'
 import { processConversations } from './traversal.mjs'
 import { getGptContent } from './llm.mjs'
 import { createBrowserHistory } from '../../services/browser/dependencies/browser-history.mjs'
@@ -68,27 +66,14 @@ async function openSession(paths) {
   }
 }
 
-function appendApproval(approval, clock = () => new Date()) {
-  return async (request) => approval.update((queue) => {
-    const dedupeKey = createHash('sha256').update([request.hrName, request.company, request.jobTitle, request.latestHrMessage].join('\n')).digest('hex')
-    const existing = queue.find((item) => item.dedupeKey === dedupeKey && item.status === 'pending')
-    if (existing) return existing
-    const item = { id: randomUUID(), dedupeKey, createdAt: clock().toISOString(), status: 'pending', ...request }
-    queue.push(item)
-    return item
-  })
-}
-
-function defaultDependencies(paths) {
-  const approval = createApprovalService({ queueFilePath: path.join(paths.storageDir, 'hr-reply-approval-queue.json') })
+function defaultDependencies(paths, approval) {
+  if (approval && (typeof approval.listApprovals !== 'function' || typeof approval.appendApprovalRequest !== 'function' || typeof approval.markApproval !== 'function')) {
+    throw new TypeError('backend approval operations are required')
+  }
   return {
     loadSettings: () => loadSettings(paths), openDatabase: () => openDatabase(paths), openSession: () => openSession(paths),
     processConversations,
-    approval: {
-      listApprovals: (options) => approval.list(options),
-      appendApprovalRequest: appendApproval(approval),
-      markApproval: (id, status, reason = '') => approval.setStatus({ id, status, reason, extra: status === 'auto_reply_sent' ? { sentAt: new Date().toISOString() } : {} })
-    }
+    approval
   }
 }
 
@@ -141,8 +126,8 @@ async function checkJobIsClosed({ page, database, conversation }) {
   return Boolean(record && record.hireStatus !== 1)
 }
 
-export async function createReadNoReplyRuntime({ runtimePaths = createRuntimePaths(os.homedir()), dependencies = {}, rerunInterval = Number.isFinite(Number(process.env.MAIN_BOSSGEEKGO_RERUN_INTERVAL)) ? Number(process.env.MAIN_BOSSGEEKGO_RERUN_INTERVAL) : 5000 } = {}) {
-  const deps = { ...defaultDependencies(runtimePaths), ...dependencies }
+export async function createReadNoReplyRuntime({ runtimePaths = createRuntimePaths(os.homedir()), dependencies = {}, approvalOperations = dependencies.approval, rerunInterval = Number.isFinite(Number(process.env.MAIN_BOSSGEEKGO_RERUN_INTERVAL)) ? Number(process.env.MAIN_BOSSGEEKGO_RERUN_INTERVAL) : 5000 } = {}) {
+  const deps = { ...defaultDependencies(runtimePaths, approvalOperations), ...dependencies }
   const settings = await deps.loadSettings(runtimePaths)
   const database = await deps.openDatabase(runtimePaths)
   let session

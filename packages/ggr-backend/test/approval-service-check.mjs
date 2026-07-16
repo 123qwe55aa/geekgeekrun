@@ -4,7 +4,9 @@ import fsSync from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import { initDb } from '@geekgeekrun/sqlite-plugin'
 import { createApprovalService } from '../lib/services/approval-service.mjs'
+import { createSafetyStore } from '../lib/services/safety-store.mjs'
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const absentPid = 2_147_483_647
@@ -210,6 +212,28 @@ try {
     })
     assert.deepEqual(JSON.parse(await fs.readFile(lockPath, 'utf8')), replacement)
     await fs.unlink(lockPath)
+  }
+
+  {
+    const databaseFile = path.join(tempDir, 'approval-migration.sqlite')
+    const legacyQueue = path.join(tempDir, 'hr-reply-approval-queue.json')
+    const database = await initDb(databaseFile)
+    const store = createSafetyStore({ getDataSource: async () => database })
+    await store.initialize()
+    await fs.writeFile(legacyQueue, JSON.stringify([
+      { id: 'legacy-one', status: 'pending', hrName: 'Ada', company: 'Acme', latestHrMessage: 'Hello' }
+    ]))
+
+    const service = createApprovalService({ queueFilePath: legacyQueue, safetyStore: store })
+    assert.deepEqual((await service.list()).map(({ id, status }) => ({ id, status })), [{ id: 'legacy-one', status: 'pending' }])
+    assert.equal((await store.listApprovals({ kind: 'AUTO_REPLY' })).length, 1)
+    assert.equal((await service.approve({ id: 'legacy-one', reason: 'approved' })).status, 'approved_auto_reply')
+    assert.deepEqual((await service.list()).map(({ id }) => id), [])
+    assert.equal((await fs.readdir(tempDir)).some((entry) => entry.startsWith('hr-reply-approval-queue.json.migrated-')), true)
+
+    const afterRestart = createApprovalService({ queueFilePath: legacyQueue, safetyStore: store })
+    assert.equal((await afterRestart.list({ includeAll: true })).length, 1, 'legacy import is idempotent')
+    await database.destroy()
   }
 } finally {
   await fs.rm(tempDir, { recursive: true, force: true })

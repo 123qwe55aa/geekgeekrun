@@ -260,7 +260,7 @@ export function createTaskService({
   function launch(workerId, restartCount = 0, options = { headless: false }, runRecordId = nextRunRecordId++, restartState = restartStates.get(workerId) ?? resetRestartState(workerId)) {
     const entry = assertWorker(workerId)
     const child = spawnProcess(process.execPath, [entry], {
-      stdio: workerId === AUTO_CHAT_WORKER_ID ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
+      stdio: (workerId === AUTO_CHAT_WORKER_ID || workerId === 'readNoReplyAutoReminderMain') ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, GGR_HEADLESS: String(options.headless) }
     })
     const record = {
@@ -302,7 +302,7 @@ export function createTaskService({
     }
     child.stdout?.on?.('data', (chunk) => pushDiagnostic(record, 'stdout', chunk, diagnosticLineBytes, diagnosticStreamBytes, (line, truncated) => progress('stdout', line, truncated), (line) => structuredWorkerEvent(line, report)))
     child.stderr?.on?.('data', (chunk) => pushDiagnostic(record, 'stderr', chunk, diagnosticLineBytes, diagnosticStreamBytes, (line, truncated) => progress('stderr', line, truncated)))
-    if (workerId === AUTO_CHAT_WORKER_ID && workerControl) {
+    if ((workerId === AUTO_CHAT_WORKER_ID || workerId === 'readNoReplyAutoReminderMain') && workerControl) {
       child.on?.('message', async (message) => {
         if (!validWorkerControlMessage(message)) return
         try {

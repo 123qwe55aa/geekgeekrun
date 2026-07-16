@@ -25,7 +25,7 @@ export function createRouter(entries = []) {
   }
 }
 
-export function registerServiceHandlers(router, { methods, task, approval, policy, getSafetyApproval }) {
+export function registerServiceHandlers(router, { methods, task, approval, policy, getSafetyApproval, listSafetyApprovals }) {
   return router
     .register(methods.SYSTEM_UPDATE_DRAIN, (params) => {
       onlyKeys(params, new Set(['enabled']))
@@ -44,8 +44,11 @@ export function registerServiceHandlers(router, { methods, task, approval, polic
       return task.stop(params)
     })
     .register(methods.APPROVAL_LIST, (params) => {
-      onlyKeys(params, new Set(['includeAll']))
+      onlyKeys(params, new Set(['includeAll', 'kind', 'status']))
       if (params.includeAll !== undefined && typeof params.includeAll !== 'boolean') throw invalidParams('includeAll must be a boolean')
+      if (params.kind !== undefined && (typeof params.kind !== 'string' || !params.kind)) throw invalidParams('kind must be a non-empty string')
+      if (params.status !== undefined && (typeof params.status !== 'string' || !params.status)) throw invalidParams('status must be a non-empty string')
+      if ((params.kind !== undefined || params.status !== undefined) && listSafetyApprovals) return listSafetyApprovals({ kind: params.kind, status: params.status })
       return approval.list({ includeAll: params.includeAll })
     })
     .register(methods.APPROVAL_CREATE, (params) => {
@@ -54,7 +57,8 @@ export function registerServiceHandlers(router, { methods, task, approval, polic
     })
     .register(methods.APPROVAL_APPROVE, async (params, context) => {
       onlyKeys(params, new Set(['id', 'reason']))
-      if (await getSafetyApproval?.(params.id)) return policy.approve({ id: params.id, actor: context?.handshake })
+      const safetyApproval = await getSafetyApproval?.(params.id)
+      if (safetyApproval?.kind === 'AUTO_CHAT') return policy.approve({ id: params.id, actor: context?.handshake })
       return approval.approve(params)
     })
     .register(methods.APPROVAL_REQUIRE_HUMAN, (params) => {
@@ -74,7 +78,8 @@ export function registerServiceHandlers(router, { methods, task, approval, polic
       return policy.updateConfig(params.patch)
     })
     .register(methods.SAFETY_RESUME, (params) => {
-      onlyKeys(params, new Set())
+      onlyKeys(params, new Set(['reason']))
+      if (params.reason !== undefined && typeof params.reason !== 'string') throw invalidParams('reason must be a string')
       return policy.resume()
     })
     .register(methods.AGENT_STATUS, async (params) => {
@@ -88,8 +93,11 @@ export function registerServiceHandlers(router, { methods, task, approval, polic
       if (!request) throw Object.assign(new Error('approval was not found'), { code: 'APPROVAL_NOT_FOUND' })
       return request
     })
-    .register(methods.APPROVAL_REJECT, (params, context) => {
+    .register(methods.APPROVAL_REJECT, async (params, context) => {
       onlyKeys(params, new Set(['id', 'reason']))
-      return policy.reject({ id: params.id, reason: params.reason, actor: context?.handshake })
+      const request = await getSafetyApproval?.(params.id)
+      return request?.kind === 'AUTO_CHAT'
+        ? policy.reject({ id: params.id, reason: params.reason, actor: context?.handshake })
+        : approval.requireHuman({ id: params.id, reason: params.reason })
     })
 }

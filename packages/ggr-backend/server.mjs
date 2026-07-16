@@ -39,6 +39,12 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
     accountHealthCheck: async () => (await records.accountStatus()).authenticated === true,
     now: clock ? () => clock() : undefined
   })
+  const approval = services.approval ?? createApprovalService({
+    queueFilePath: path.join(runtimePaths.storageDir, 'hr-reply-approval-queue.json'),
+    safetyStore,
+    emit,
+    clock
+  })
   let workerControl = services.workerControl
   const taskWorkerControl = workerControl ?? {
     handle: (...args) => workerControl.handle(...args)
@@ -54,12 +60,7 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
     workerControl: taskWorkerControl,
     exitHistoryFile: services.exitHistoryFile ?? path.join(runtimePaths.storageDir, 'task-exits.json')
   })
-  if (!workerControl && !services.task) workerControl = createWorkerControlService({ policy, task })
-  const approval = services.approval ?? createApprovalService({
-    queueFilePath: path.join(runtimePaths.storageDir, 'hr-reply-approval-queue.json'),
-    emit,
-    clock
-  })
+  if (!workerControl && !services.task) workerControl = createWorkerControlService({ policy, task, approval })
   const llm = services.llm ?? { request: requestNewMessageContent }
   const browser = services.browser ?? (() => {
     const browserRecords = services.browserRecords ?? createBrowserRecords({ getDataSource: records.getDataSource })
@@ -127,7 +128,8 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
     task,
     approval,
     policy,
-    getSafetyApproval: (id) => safetyStore.getApproval(id)
+    getSafetyApproval: (id) => safetyStore.getApproval(id),
+    listSafetyApprovals: (filters) => safetyStore.listApprovals(filters)
   })
 
   for (const [method, handler] of Object.entries(services.handlers ?? {})) router.register(method, handler)
@@ -140,6 +142,7 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
       if (closed) throw new Error('Backend server is closed')
       await migrateLegacyLayout(runtimePaths)
       await safetyStore.initialize?.()
+      await approval.initialize?.()
       await rpc.start()
       started = true
     },

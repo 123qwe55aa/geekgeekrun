@@ -71,6 +71,27 @@ assert.deepEqual(calls[8], ['approval.requireHuman', { id: 'approval-1', reason:
 await controller.createApprovalRequest({ id: 'approval-2', latestHrMessage: 'please confirm' })
 assert.deepEqual(calls[9], ['approval.create', { request: { id: 'approval-2', latestHrMessage: 'please confirm' } }])
 
+await controller.getSafetyStatus()
+assert.deepEqual(calls[10], ['safety.status', {}])
+
+await controller.getAgentStatus()
+assert.deepEqual(calls[11], ['agent.status', {}])
+
+await controller.listApprovals({ includeAll: true, kind: 'AUTO_REPLY', status: 'PENDING' })
+assert.deepEqual(calls[12], ['approval.list', { includeAll: true, kind: 'AUTO_REPLY', status: 'PENDING' }])
+
+await controller.getApproval({ id: 'approval-1' })
+assert.deepEqual(calls[13], ['approval.get', { id: 'approval-1' }])
+
+await controller.approveApproval({ id: 'approval-1', reason: 'approved' })
+assert.deepEqual(calls[14], ['approval.approve', { id: 'approval-1', reason: 'approved' }])
+
+await controller.rejectApproval({ id: 'approval-1', reason: 'rejected' })
+assert.deepEqual(calls[15], ['approval.reject', { id: 'approval-1', reason: 'rejected' }])
+
+await controller.resumeSafety({ reason: 'operator verified' })
+assert.deepEqual(calls[16], ['safety.resume', { reason: 'operator verified' }])
+
 await assert.rejects(
   () => controller.start({ mode: 'manual' }),
   /Unsupported agent mode/

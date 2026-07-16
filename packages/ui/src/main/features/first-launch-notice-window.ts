@@ -3,8 +3,7 @@ import os from 'os'
 import path from 'path'
 import buildInfo from '../../common/build-info.json'
 import {
-  createFirstLaunchNoticeWindow,
-  firstLaunchNoticeWindow
+  createFirstLaunchNoticeWindow
 } from '../window/firstLaunchNoticeWindow'
 import { ipcMain } from 'electron'
 
@@ -20,16 +19,16 @@ export const createFirstLaunchNoticeApproveFlag = () => {
   fs.mkdirSync(path.dirname(firstLaunchNoticeApproveFlagPath), { recursive: true })
   fs.writeFileSync(firstLaunchNoticeApproveFlagPath, buildInfo.version)
 }
-export async function waitForUserApproveAgreement({ windowOption } = {}) {
+export async function waitForUserApproveAgreement({ windowOption }: { windowOption?: Electron.BrowserWindowConstructorOptions } = {}) {
   return new Promise((resolve, reject) => {
-    createFirstLaunchNoticeWindow({ ...windowOption })
+    const window = createFirstLaunchNoticeWindow({ ...windowOption })
     let processDone = false
     function handler() {
       processDone = true
-      firstLaunchNoticeWindow.close()
+      window.close()
     }
     ipcMain.once('first-launch-notice-approve', handler)
-    firstLaunchNoticeWindow.once('closed', () => {
+    window.once('closed', () => {
       ipcMain.off('first-launch-notice-approve', handler)
       if (processDone) {
         resolve(true)

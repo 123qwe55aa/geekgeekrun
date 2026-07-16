@@ -16,7 +16,7 @@ const registerHandleWithWindow = (
 
 export function createBrowserAssistantWindow(
   opt?: Electron.BrowserWindowConstructorOptions,
-  { autoFind } = {}
+  { autoFind }: { autoFind?: boolean } = {}
 ): BrowserWindow {
   // Create the browser window.
   if (browserAssistantWindow) {

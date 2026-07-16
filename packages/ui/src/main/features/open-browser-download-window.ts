@@ -1,23 +1,22 @@
 import { ipcMain } from 'electron'
 import {
-  createBrowserDownloadProgressWindow,
-  browserDownloadProgressWindow
+  createBrowserDownloadProgressWindow
 } from '../window/browserDownloadProgressWindow'
 
-export async function openBrowserDownloadWindow({ windowOption } = {}) {
+export async function openBrowserDownloadWindow({ windowOption }: { windowOption?: Electron.BrowserWindowConstructorOptions } = {}) {
   // The progress window delegates downloading to the backend-owned compatibility flow.
   return new Promise((resolve, reject) => {
-    createBrowserDownloadProgressWindow({ ...windowOption })
+    const window = createBrowserDownloadProgressWindow({ ...windowOption })
 
     let processDone = false
-    let pathOfDownloadedBrowser = null
-    function handler(_, executablePath) {
+    let pathOfDownloadedBrowser: string | null = null
+    function handler(_event: Electron.IpcMainEvent, executablePath: string) {
       pathOfDownloadedBrowser = executablePath
       processDone = true
-      browserDownloadProgressWindow.close()
+      window.close()
     }
     ipcMain.once('browser-download-done', handler)
-    browserDownloadProgressWindow.once('closed', () => {
+    window.once('closed', () => {
       ipcMain.off('browser-download-done', handler)
       if (processDone) {
         resolve(pathOfDownloadedBrowser)

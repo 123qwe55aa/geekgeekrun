@@ -46,6 +46,16 @@ const SAFETY_EVENT_NAMES = new Set([
 ])
 let safetyEventRelayInstalled = false
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 const redactedUpdateFailure = () => ({
   current: null,
   previous: null,
@@ -270,7 +280,7 @@ export default function initIpc() {
       modal: true,
       show: true
     })
-    const defer = Promise.withResolvers<void>()
+    const defer = createDeferred<void>()
     async function saveLlmConfigHandler(_, configToSave) {
       await writeBackendConfig('llm_config', configToSave)
       defer.resolve()
@@ -292,7 +302,7 @@ export default function initIpc() {
       modal: true,
       show: true
     })
-    const defer = Promise.withResolvers<void>()
+    const defer = createDeferred<void>()
     async function saveResumeHandler(_, resumeContent) {
       await writeBackendConfig('resumes', [
         {

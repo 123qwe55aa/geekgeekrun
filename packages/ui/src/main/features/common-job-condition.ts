@@ -2,10 +2,9 @@ import { ipcMain } from 'electron'
 import { createCommonJobConditionConfigWindow } from '../window/commonJobConditionConfigWindow'
 import { mainWindow } from '../window/mainWindow'
 
-let commonJobConditionConfigWindow = null
 export async function waitForCommonJobConditionDone() {
   return new Promise((resolve, reject) => {
-    commonJobConditionConfigWindow = createCommonJobConditionConfigWindow({
+    const window = createCommonJobConditionConfigWindow({
       parent: mainWindow!,
       modal: true,
       show: true
@@ -13,10 +12,10 @@ export async function waitForCommonJobConditionDone() {
     let processDone = false
     function handler() {
       processDone = true
-      commonJobConditionConfigWindow.close()
+      window.close()
     }
     ipcMain.once('common-job-condition-config-done', handler)
-    commonJobConditionConfigWindow.on('closed', async () => {
+    window.on('closed', async () => {
       ipcMain.off('common-job-condition-config-done', handler)
       if (processDone) {
         resolve(true)

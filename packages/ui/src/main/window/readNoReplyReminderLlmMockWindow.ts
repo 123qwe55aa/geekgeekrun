@@ -5,7 +5,7 @@ import { URL } from 'node:url'
 export let readNoReplyReminderLlmMockWindow: BrowserWindow | null = null
 export function createReadNoReplyReminderLlmMockWindow(
   opt?: Electron.BrowserWindowConstructorOptions,
-  { autoReminderConfig } = {}
+  { autoReminderConfig }: { autoReminderConfig?: Record<string, string | number | boolean | undefined> } = {}
 ): BrowserWindow {
   // Create the browser window.
   if (readNoReplyReminderLlmMockWindow) {
@@ -41,7 +41,7 @@ export function createReadNoReplyReminderLlmMockWindow(
   }
 
   for (const [k, v] of Object.entries(autoReminderConfig || {})) {
-    urlObj.searchParams.append(k, v)
+    if (v !== undefined) urlObj.searchParams.append(k, String(v))
   }
   readNoReplyReminderLlmMockWindow.loadURL(String(urlObj))
   readNoReplyReminderLlmMockWindow!.once('closed', () => {

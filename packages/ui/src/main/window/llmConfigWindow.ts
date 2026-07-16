@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow } from 'electron'
 import path from 'path'
 
 export let llmConfigWindow: BrowserWindow | null = null

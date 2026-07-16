@@ -1,20 +1,24 @@
 import { ipcMain } from 'electron'
 import {
-  createBrowserAssistantWindow,
-  browserAssistantWindow
+  createBrowserAssistantWindow
 } from '../window/browserAssistantWindow'
 
-export async function configWithBrowserAssistant({ windowOption, autoFind } = {}) {
+type BrowserAssistantOptions = {
+  windowOption?: Electron.BrowserWindowConstructorOptions
+  autoFind?: boolean
+}
+
+export async function configWithBrowserAssistant({ windowOption, autoFind }: BrowserAssistantOptions = {}) {
   return new Promise((resolve, reject) => {
-    createBrowserAssistantWindow({ ...windowOption }, { autoFind })
+    const window = createBrowserAssistantWindow({ ...windowOption }, { autoFind })
 
     let processDone = false
     function handler() {
       processDone = true
-      browserAssistantWindow.close()
+      window.close()
     }
     ipcMain.once('browser-config-saved', handler)
-    browserAssistantWindow.once('closed', () => {
+    window.once('closed', () => {
       ipcMain.off('browser-config-saved', handler)
       if (processDone) {
         resolve(true)

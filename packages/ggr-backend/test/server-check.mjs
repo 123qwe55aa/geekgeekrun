@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { createGgrClient } from '@geekgeekrun/ggr-client'
+import { initDb } from '@geekgeekrun/sqlite-plugin'
 import { createBackendServer } from '../server.mjs'
 import { createRuntimePaths } from '../lib/runtime-paths.mjs'
 import { createConfigService } from '../lib/services/config-service.mjs'
@@ -169,6 +170,7 @@ try {
   assert.deepEqual(cancelledBrowserTasks, ['browser-task'])
   await assert.rejects(client.request('browser.cancel', {}), { code: 'INVALID_PARAMS' })
   await assert.rejects(client.request('browser.cancel', { taskId: 'browser-task', extra: true }), { code: 'INVALID_PARAMS' })
+  assert.deepEqual(await client.request('records.list', { resource: 'jobs' }), { items: [], total: 0, page: 1, pageSize: 10 })
   for (const forbidden of ['command', 'args', 'cwd', 'env']) {
     await assert.rejects(
       client.request('task.start', { workerId: 'auto', [forbidden]: 'forbidden' }),
@@ -206,6 +208,14 @@ try {
   await client.close()
   await backend.stop()
   await assert.rejects(fs.lstat(runtimePaths.backendSocket), { code: 'ENOENT' })
+
+  const migrated = await initDb(runtimePaths.databaseFile)
+  try {
+    const [{ name }] = await migrated.manager.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'ggr_safety_state'")
+    assert.equal(name, 'ggr_safety_state')
+  } finally {
+    await migrated.destroy()
+  }
 
   const log = await fs.readFile(runtimePaths.backendLog, 'utf8')
   const records = log.trim().split('\n').map(JSON.parse)

@@ -326,7 +326,7 @@ export function createTaskService({
       if (policyStopped) stoppedWorkers.add(workerId)
       const restartEligible = !stoppedWorkers.has(workerId) && code !== 0
       let restarting = false
-      let restartSuppressed = policyStoppedWorkers.has(workerId)
+      let restartSuppressed = policyStopped || policyStoppedWorkers.has(workerId)
       const restartSuppressionReason = policyStopped ? SAFETY_POLICY_STOP : null
       let restartDelayMs
       if (restartEligible) {

@@ -507,7 +507,12 @@ try {
     client.onEvent((event) => { if (event.event === 'task.exited') exited.push(event.data) })
 
     await client.request('task.start', { workerId: 'geekAutoStartWithBossMain' })
-    const child = children[0]
+    await client.request('task.stop', { workerId: 'geekAutoStartWithBossMain' })
+    assert.equal((await client.request('safety.status')).status, 'IDLE',
+      'a manually stopped auto-chat worker must release its backend safety run')
+
+    await client.request('task.start', { workerId: 'geekAutoStartWithBossMain' })
+    const child = children.at(-1)
     const candidateReply = new Promise((resolve) => { child.send = resolve })
     child.emit('message', {
       ggrWorkerControl: 1,
@@ -551,7 +556,7 @@ try {
       data: await client.request('safety.status')
     })
     assert.equal((await client.request('safety.status')).status, 'PAUSED_RISK')
-    assert.equal(children.length, 1, 'risk stop must not restart the auto-chat worker')
+    assert.equal(children.length, 2, 'risk stop must not restart the auto-chat worker')
     assert(exited.some((event) => event.workerId === 'geekAutoStartWithBossMain' && event.restartSuppressed === true))
     await reviewer.close()
     reviewer = null

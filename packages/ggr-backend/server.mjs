@@ -57,6 +57,9 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
     admitStart: async ({ workerId, runRecordId }) => {
       if (workerId === 'geekAutoStartWithBossMain') await policy.preflightStart({ runRecordId })
     },
+    onTaskExit: async ({ workerId, runRecordId }) => {
+      if (workerId === 'geekAutoStartWithBossMain') await policy.expireRun({ runRecordId })
+    },
     workerControl: taskWorkerControl,
     exitHistoryFile: services.exitHistoryFile ?? path.join(runtimePaths.storageDir, 'task-exits.json')
   })

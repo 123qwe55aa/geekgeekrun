@@ -90,6 +90,34 @@ assert.equal(resolveRerunInterval({ MAIN_BOSSGEEKGO_RERUN_INTERVAL: 'not-a-numbe
 
 {
   const calls = []
+  const hooks = {
+    jobDetailIsGetFromRecommendList: new AsyncSeriesHook(['job']),
+    newChatWillStartup: new AsyncSeriesHook(['context']),
+    newChatOutcome: new AsyncSeriesHook(['context', 'outcome'])
+  }
+  applyAutoChatControlHooks({
+    hooks,
+    controlClient: {
+      request: async (type, data) => {
+        calls.push({ type, data })
+        return type === 'candidate.propose' ? { grantForWorker: 'grant-real-shape' } : { id: `${type}-1` }
+      }
+    }
+  })
+  const job = {
+    jobInfo: { encryptId: 'job-real-shape', encryptUserId: 'boss-real-shape' },
+    brandComInfo: { encryptBrandId: 'company-real-shape', brandName: 'Acme' }
+  }
+  await hooks.newChatWillStartup.promise({ pageUrl: 'https://www.zhipin.com/web/geek/jobs', job, sendControlPresent: true })
+  assert.deepEqual(calls.map(({ type }) => type), ['candidate.propose', 'grant.consume'],
+    'the live recommend-page payload must produce an approval candidate before chat starts')
+  assert.deepEqual(calls[0].data, {
+    jobId: 'job-real-shape', bossId: 'boss-real-shape', companyId: 'company-real-shape', pageUrl: 'https://www.zhipin.com/web/geek/jobs'
+  })
+}
+
+{
+  const calls = []
   await assert.rejects(runAutoChatMainLoop({
     hooks: {},
     mainLoopImpl: async () => { throw new Error('ACCESS_IS_DENIED at https://www.zhipin.com/web/common/403.html') },

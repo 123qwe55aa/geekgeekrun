@@ -49,8 +49,8 @@ function valueAt(source, paths) {
 function jobIdentity(job) {
   const jobId = valueAt(job, [['jobInfo', 'encryptId'], ['encryptId'], ['jobId']])
   const bossId = valueAt(job, [['jobInfo', 'encryptUserId'], ['bossInfo', 'encryptUserId'], ['encryptUserId'], ['bossId']])
-  const companyId = valueAt(job, [['jobInfo', 'brandId'], ['brandInfo', 'encryptId'], ['brandInfo', 'brandId'], ['companyId']])
-  const companyName = valueAt(job, [['brandName'], ['brandInfo', 'brandName'], ['companyName']])
+  const companyId = valueAt(job, [['jobInfo', 'brandId'], ['brandInfo', 'encryptId'], ['brandInfo', 'brandId'], ['brandComInfo', 'encryptBrandId'], ['companyId']])
+  const companyName = valueAt(job, [['brandName'], ['brandInfo', 'brandName'], ['brandComInfo', 'brandName'], ['brandComInfo', 'customerBrandName'], ['companyName']])
   if (jobId === undefined || bossId === undefined || (companyId === undefined && companyName === undefined)) {
     throw controlFailure('INVALID_AUTO_CHAT_CONTEXT', 'job does not contain a complete auto-chat identity')
   }

@@ -57,7 +57,8 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
       return fakeChild(301)
     },
     workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
-    admitStart: ({ runRecordId }) => policy.preflightStart({ runRecordId })
+    admitStart: ({ runRecordId }) => policy.preflightStart({ runRecordId }),
+    onTaskExit: ({ runRecordId }) => policy.expireRun({ runRecordId })
   })
 
   await policy.stopForQuota({ reason: 'daily chat limit reached' })
@@ -89,6 +90,7 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
   assert.equal(spawnCalls.length, 1, 'an admitted auto-chat start creates exactly one child process')
   assert.equal((await policy.status()).runRecordId, String(started.runRecordId), 'policy state must use the worker run record id')
   await service.stop({ workerId: 'geekAutoStartWithBossMain' })
+  assert.equal((await policy.status()).status, 'IDLE', 'stopping auto-chat must release its active safety run')
 }
 
 {

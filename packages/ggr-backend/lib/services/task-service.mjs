@@ -200,6 +200,7 @@ export function createTaskService({
   scheduleRestart = setTimeout,
   clearScheduledRestart = clearTimeout,
   admitStart,
+  onTaskExit,
   workerControl,
   exitHistoryFile
 }) {
@@ -207,6 +208,7 @@ export function createTaskService({
   if (!Number.isInteger(diagnosticLineBytes) || diagnosticLineBytes <= 0) throw new TypeError('diagnosticLineBytes must be a positive integer')
   if (!Number.isInteger(diagnosticStreamBytes) || diagnosticStreamBytes <= 0) throw new TypeError('diagnosticStreamBytes must be a positive integer')
   if (admitStart !== undefined && typeof admitStart !== 'function') throw new TypeError('admitStart must be a function')
+  if (onTaskExit !== undefined && typeof onTaskExit !== 'function') throw new TypeError('onTaskExit must be a function')
   if (workerControl !== undefined && (!workerControl || typeof workerControl.handle !== 'function')) throw new TypeError('workerControl.handle must be a function')
   const workers = new Map()
   const stoppedWorkers = new Set()
@@ -277,6 +279,7 @@ export function createTaskService({
       },
       recentStdout: [],
       recentStderr: [],
+      finalizePromise: Promise.resolve(),
       stdoutCarry: { text: '', bytes: 0, truncated: false },
       stderrCarry: { text: '', bytes: 0, truncated: false },
       stdoutDiagnosticBytes: 0,
@@ -382,6 +385,18 @@ export function createTaskService({
         ...(lastExit.error ? { error: lastExit.error } : {}),
         ...(lastExit.closeError ? { closeError: lastExit.closeError } : {})
       })
+      if (!restarting && onTaskExit) {
+        record.finalizePromise = Promise.resolve(onTaskExit({ workerId, runRecordId, code, signal, restartSuppressed }))
+          .catch((exitError) => {
+            emit('task.progress', {
+              workerId,
+              runRecordId,
+              state: 'exit-release-failed',
+              code: 'TASK_EXIT_RELEASE_FAILED',
+              message: redactLine(exitError?.message ?? String(exitError))
+            })
+          })
+      }
       if (restarting) {
         const suppressRestart = (error) => {
           stoppedWorkers.add(workerId)
@@ -501,6 +516,7 @@ export function createTaskService({
         child.kill('SIGKILL')
         await exited
       }
+      await record.finalizePromise
       return null
     })()
     stopPromises.set(workerId, pending)

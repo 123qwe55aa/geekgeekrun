@@ -3,7 +3,16 @@ import net from 'node:net'
 import path from 'node:path'
 import { createError, createEvent, createResult } from '@geekgeekrun/ggr-protocol'
 
-const STABLE_CODES = new Set(['INVALID_PARAMS', 'METHOD_NOT_FOUND', 'PROTOCOL_INCOMPATIBLE', 'HANDSHAKE_REQUIRED', 'PEER_REJECTED'])
+const STABLE_CODES = new Set([
+  'INVALID_PARAMS', 'METHOD_NOT_FOUND', 'PROTOCOL_INCOMPATIBLE', 'HANDSHAKE_REQUIRED', 'PEER_REJECTED',
+  'ACCOUNT_HEALTH_CHECK_FAILED', 'APPROVAL_ALREADY_CONSUMED', 'APPROVAL_ALREADY_PENDING', 'APPROVAL_ALREADY_REVIEWED',
+  'APPROVAL_APPROVED', 'APPROVAL_CONSUMED', 'APPROVAL_CONTEXT_MISMATCH', 'APPROVAL_EXPIRED', 'APPROVAL_NOT_FOUND',
+  'APPROVAL_PENDING', 'APPROVAL_REJECTED', 'BROWSE_DAILY_QUOTA_EXCEEDED', 'CHAT_DAILY_QUOTA_EXCEEDED',
+  'CHAT_HOURLY_QUOTA_EXCEEDED', 'CHAT_NOT_RESERVED', 'COMPANY_COOLDOWN_ACTIVE', 'INVALID_APPROVAL_ACTOR',
+  'INVALID_APPROVAL_GRANT', 'INVALID_APPROVAL_ID', 'INVALID_AUTO_CHAT_CONTEXT', 'INVALID_LOGIN_PAUSED',
+  'INVALID_RUN_CONTEXT', 'INVALID_SAFETY_CONFIG', 'PAUSED_QUOTA', 'PAUSED_RISK', 'RISK_COOLDOWN_ACTIVE', 'RUN_NOT_ACTIVE',
+  'RUN_RECORD_MISMATCH'
+])
 
 export function createRpcServer({ socketPath, router, verifyPeer = async () => true, logger }) {
   let server = null
@@ -23,6 +32,7 @@ export function createRpcServer({ socketPath, router, verifyPeer = async () => t
     socket.on('close', () => { sockets.delete(socket); subscribers.delete(socket) })
     let buffer = ''
     let handshaken = false
+    let handshake = null
     let accepted = false
     Promise.resolve(verifyPeer(socket)).then((verified) => {
       if (!verified) throw Object.assign(new Error('Peer verification rejected connection'), { code: 'PEER_REJECTED' })
@@ -46,14 +56,18 @@ export function createRpcServer({ socketPath, router, verifyPeer = async () => t
         if (!request || typeof request.id !== 'string' || typeof request.method !== 'string') { socket.destroy(); return }
         try {
           if (!handshaken && request.method !== 'system.handshake') throw Object.assign(new Error('system.handshake must be the first request'), { code: 'HANDSHAKE_REQUIRED' })
-          const result = await router.dispatch(request, { socket, correlationId: request.id })
-          if (request.method === 'system.handshake') { handshaken = true; subscribers.add(socket) }
+          const result = await router.dispatch(request, { socket, correlationId: request.id, handshake })
+          if (request.method === 'system.handshake') {
+            handshaken = true
+            handshake = Object.freeze({ client: request.params.client, clientVersion: request.params.clientVersion })
+            subscribers.add(socket)
+          }
           await logger.write('info', 'rpc.request', { correlationId: request.id, method: request.method, params: request.params, result })
           socket.write(`${JSON.stringify(createResult(request.id, result))}\n`)
         } catch (error) {
           const code = STABLE_CODES.has(error?.code) ? error.code : 'INTERNAL_ERROR'
           await logger.write('error', 'rpc.request_failed', { correlationId: request.id, method: request.method, params: request.params, error: { code, message: error.message } })
-          socket.write(`${JSON.stringify(createError(request.id, code, code === 'INTERNAL_ERROR' ? 'Internal error' : error.message))}\n`)
+          socket.write(`${JSON.stringify(createError(request.id, code, code === 'INTERNAL_ERROR' ? 'Internal error' : error.message, error.data))}\n`)
         }
       }
     }

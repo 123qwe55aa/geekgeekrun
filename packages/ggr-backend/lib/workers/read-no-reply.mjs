@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { createWorkerReporter } from './worker-reporter.mjs'
+import { createWorkerControlClient } from './worker-control-client.mjs'
 
 const WORKER_ID = 'readNoReplyAutoReminderMain'
 const KNOWN_CODES = ['COOKIE_INVALID', 'LOGIN_STATUS_INVALID', 'ERR_INTERNET_DISCONNECTED', 'ACCESS_IS_DENIED', 'PUPPETEER_IS_NOT_EXECUTABLE', 'LLM_UNAVAILABLE']
@@ -31,11 +32,15 @@ export async function runReadNoReply({ runtime, taskReporter, shouldStop }) {
   }
 }
 
-export async function runReadNoReplyEntry({ createRuntime, taskReporter = createWorkerReporter(), shouldStop } = {}) {
+export async function runReadNoReplyEntry({ createRuntime, controlClient = createWorkerControlClient(), taskReporter = createWorkerReporter(), shouldStop } = {}) {
   if (typeof createRuntime !== 'function') throw new TypeError('createRuntime is required')
   taskReporter.emit('task.progress', { workerId: WORKER_ID, state: 'starting' })
   try {
-    const runtime = await createRuntime({ taskReporter })
+    const runtime = await createRuntime({ taskReporter, approvalOperations: {
+      listApprovals: (options) => controlClient.request('approval.list', options ?? {}),
+      appendApprovalRequest: (request) => controlClient.request('approval.create', { request }),
+      markApproval: (id, status, reason = '') => controlClient.request('approval.setStatus', { id, status, reason })
+    } })
     await runReadNoReply({ runtime, taskReporter, shouldStop: shouldStop ?? runtime.shouldStop ?? (() => false) })
     return 0
   } catch (error) {
@@ -54,7 +59,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const testRuntimeModule = process.env.NODE_ENV === 'test' ? process.env.GGR_TEST_READ_NO_REPLY_RUNTIME_MODULE : ''
     const runtimeModule = testRuntimeModule || './read-no-reply/runtime.mjs'
     const { createReadNoReplyRuntime } = await import(runtimeModule)
-    await runReadNoReplyEntry({ createRuntime: createReadNoReplyRuntime, ...(testRuntimeModule ? {} : { shouldStop: async () => stopping }) })
+    await runReadNoReplyEntry({ createRuntime: createReadNoReplyRuntime, controlClient: createWorkerControlClient(), ...(testRuntimeModule ? {} : { shouldStop: async () => stopping }) })
   } catch (error) {
     console.error(error)
     process.exitCode = workerExitCode(error)

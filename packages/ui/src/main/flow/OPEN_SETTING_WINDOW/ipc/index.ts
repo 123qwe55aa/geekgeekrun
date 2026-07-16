@@ -34,6 +34,17 @@ import {
 const WORKER_STOP_TIMEOUT_MS = 15000
 const BOSS_BROWSER_READY_TIMEOUT_MS = 15000
 const workerExitHandlerByMode = new Map<string, (event: any) => void>()
+const SAFETY_EVENT_NAMES = new Set([
+  'agent.state_changed',
+  'approval.required',
+  'approval.approved',
+  'approval.rejected',
+  'quota.blocked',
+  'risk.detected',
+  'risk.cleared',
+  'system.status'
+])
+let safetyEventRelayInstalled = false
 
 const redactedUpdateFailure = () => ({
   current: null,
@@ -52,6 +63,28 @@ async function safeBackendUpdateStatus() {
   } catch {
     return redactedUpdateFailure()
   }
+}
+
+function installSafetyEventRelay() {
+  if (safetyEventRelayInstalled) return
+  safetyEventRelayInstalled = true
+  backendEvents.on('event', (event: { event?: string; data?: Record<string, unknown> }) => {
+    if (!event.event || !SAFETY_EVENT_NAMES.has(event.event)) return
+    mainWindow?.webContents.send('agent-safety-updated', {
+      event: event.event,
+      data: event.data ?? {}
+    })
+  })
+}
+
+function approvalIdFrom(payload: unknown): string {
+  const id = typeof payload === 'string'
+    ? payload
+    : payload && typeof payload === 'object' && typeof (payload as { id?: unknown }).id === 'string'
+      ? (payload as { id: string }).id
+      : ''
+  if (!id) throw new Error('approval id is required')
+  return id
 }
 
 function subscribeToWorkerExit(mode: string) {
@@ -141,6 +174,7 @@ async function stopWorkerAndNotify({ workerId, stoppingEvent, stoppedEvent }) {
 }
 
 export default function initIpc() {
+  installSafetyEventRelay()
   ipcMain.handle('backend-update-status', safeBackendUpdateStatus)
   ipcMain.handle('backend-update-check', async () => {
     try {
@@ -162,6 +196,26 @@ export default function initIpc() {
     } catch {
       return await safeBackendUpdateStatus()
     }
+  })
+
+  ipcMain.handle('get-agent-safety-status', async () => {
+    const [agent, policy] = await Promise.all([
+      requestBackend<Record<string, unknown>>('agent.status'),
+      requestBackend<Record<string, unknown>>('safety.status')
+    ])
+    return { ...agent, policy }
+  })
+  ipcMain.handle('list-auto-chat-approvals', async () => {
+    return await requestBackend('approval.list', { kind: 'AUTO_CHAT', status: 'PENDING' })
+  })
+  ipcMain.handle('approve-auto-chat-approval', async (_event, payload: unknown) => {
+    return await requestBackend('approval.approve', { id: approvalIdFrom(payload) })
+  })
+  ipcMain.handle('reject-auto-chat-approval', async (_event, payload: unknown) => {
+    return await requestBackend('approval.reject', { id: approvalIdFrom(payload) })
+  })
+  ipcMain.handle('resume-agent-safety', async () => {
+    return await requestBackend('safety.resume')
   })
 
   ipcMain.handle('run-geek-auto-start-chat-with-boss', async () => {

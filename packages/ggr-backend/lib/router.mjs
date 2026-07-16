@@ -25,7 +25,7 @@ export function createRouter(entries = []) {
   }
 }
 
-export function registerServiceHandlers(router, { methods, task, approval }) {
+export function registerServiceHandlers(router, { methods, task, approval, policy, getSafetyApproval, listSafetyApprovals }) {
   return router
     .register(methods.SYSTEM_UPDATE_DRAIN, (params) => {
       onlyKeys(params, new Set(['enabled']))
@@ -44,20 +44,66 @@ export function registerServiceHandlers(router, { methods, task, approval }) {
       return task.stop(params)
     })
     .register(methods.APPROVAL_LIST, (params) => {
-      onlyKeys(params, new Set(['includeAll']))
+      onlyKeys(params, new Set(['includeAll', 'kind', 'status']))
       if (params.includeAll !== undefined && typeof params.includeAll !== 'boolean') throw invalidParams('includeAll must be a boolean')
+      if (params.kind !== undefined && (typeof params.kind !== 'string' || !params.kind)) throw invalidParams('kind must be a non-empty string')
+      if (params.status !== undefined && (typeof params.status !== 'string' || !params.status)) throw invalidParams('status must be a non-empty string')
+      if ((params.kind !== undefined || params.status !== undefined) && listSafetyApprovals) {
+        return listSafetyApprovals({
+          ...(params.kind === undefined ? {} : { kind: params.kind }),
+          ...(params.includeAll || params.status !== undefined ? {} : { status: 'PENDING' }),
+          ...(params.status === undefined ? {} : { status: params.status })
+        })
+      }
       return approval.list({ includeAll: params.includeAll })
     })
     .register(methods.APPROVAL_CREATE, (params) => {
       onlyKeys(params, new Set(['request']))
       return approval.create(params.request)
     })
-    .register(methods.APPROVAL_APPROVE, (params) => {
+    .register(methods.APPROVAL_APPROVE, async (params, context) => {
       onlyKeys(params, new Set(['id', 'reason']))
+      const safetyApproval = await getSafetyApproval?.(params.id)
+      if (safetyApproval?.kind === 'AUTO_CHAT') return policy.approve({ id: params.id, actor: context?.handshake })
       return approval.approve(params)
     })
     .register(methods.APPROVAL_REQUIRE_HUMAN, (params) => {
       onlyKeys(params, new Set(['id', 'reason']))
       return approval.requireHuman(params)
+    })
+    .register(methods.SAFETY_STATUS, (params) => {
+      onlyKeys(params, new Set())
+      return policy.status()
+    })
+    .register(methods.SAFETY_CONFIG_GET, (params) => {
+      onlyKeys(params, new Set())
+      return policy.getConfig()
+    })
+    .register(methods.SAFETY_CONFIG_UPDATE, (params) => {
+      onlyKeys(params, new Set(['patch']))
+      return policy.updateConfig(params.patch)
+    })
+    .register(methods.SAFETY_RESUME, (params) => {
+      onlyKeys(params, new Set(['reason']))
+      if (params.reason !== undefined && typeof params.reason !== 'string') throw invalidParams('reason must be a string')
+      return policy.resume()
+    })
+    .register(methods.AGENT_STATUS, async (params) => {
+      onlyKeys(params, new Set())
+      return { tasks: await task.list(), policy: await policy.status() }
+    })
+    .register(methods.APPROVAL_GET, async (params) => {
+      onlyKeys(params, new Set(['id']))
+      if (typeof params.id !== 'string' || !params.id) throw invalidParams('approval id is required')
+      const request = await getSafetyApproval?.(params.id)
+      if (!request) throw Object.assign(new Error('approval was not found'), { code: 'APPROVAL_NOT_FOUND' })
+      return request
+    })
+    .register(methods.APPROVAL_REJECT, async (params, context) => {
+      onlyKeys(params, new Set(['id', 'reason']))
+      const request = await getSafetyApproval?.(params.id)
+      return request?.kind === 'AUTO_CHAT'
+        ? policy.reject({ id: params.id, reason: params.reason, actor: context?.handshake })
+        : approval.requireHuman({ id: params.id, reason: params.reason })
     })
 }

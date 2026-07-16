@@ -56,6 +56,19 @@ assert.equal(connectCount, 1)
 assert.deepEqual(await service.getStatus(), { method: 'system.health', params: {} })
 assert.equal(connectCount, 2)
 assert.equal(requestCount, 2)
+assert.deepEqual(await service.getSafetyStatus(), { method: 'safety.status', params: {} })
+assert.deepEqual(await service.listApprovals({ includeAll: true, kind: 'AUTO_CHAT' }), {
+  method: 'approval.list', params: { includeAll: true, kind: 'AUTO_CHAT' }
+})
+assert.deepEqual(await service.approveApproval({ id: 'approval-1', reason: 'approved' }), {
+  method: 'approval.approve', params: { id: 'approval-1', reason: 'approved' }
+})
+assert.deepEqual(await service.rejectApproval({ id: 'approval-1', reason: 'rejected' }), {
+  method: 'approval.reject', params: { id: 'approval-1', reason: 'rejected' }
+})
+assert.deepEqual(await service.resumeSafety({ reason: 'cooldown checked' }), {
+  method: 'safety.resume', params: { reason: 'cooldown checked' }
+})
 
 const errorInput = new PassThrough()
 const errorOutput = new PassThrough()
@@ -63,12 +76,17 @@ createMcpServer({
   name: 'ggr-mcp-error-test',
   version: '0.1.0',
   tools: [{
-    name: 'backend_error',
+    name: 'boss_get_safety_status',
     description: 'test protocol error mapping',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
-      const error = new Error('backend unavailable')
-      error.code = 'CONNECTION_CLOSED'
+      const error = new Error('backend unavailable: Authorization: Bearer bearer-secret; retry after cooldown')
+      error.code = 'PAUSED_RISK'
+      error.data = {
+        cooldownUntil: '2026-07-17T00:00:00.000Z',
+        accessToken: 'super-secret',
+        nested: { apiKey: 'also-secret', state: 'PAUSED_RISK' }
+      }
       throw error
     }
   }]
@@ -78,11 +96,22 @@ errorInput.write(`${JSON.stringify({
   jsonrpc: '2.0',
   id: 2,
   method: 'tools/call',
-  params: { name: 'backend_error', arguments: {} }
+  params: { name: 'boss_get_safety_status', arguments: {} }
 })}\n`)
 const errorResponse = await errorResponsePromise
 assert.equal(errorResponse.result.isError, true)
-assert.match(errorResponse.result.content[0].text, /backend unavailable/)
+assert.equal(errorResponse.result.content[0].text, 'backend unavailable: Authorization: [redacted]; retry after cooldown')
+assert.doesNotMatch(JSON.stringify(errorResponse), /bearer-secret|super-secret|also-secret/)
+assert.deepEqual(errorResponse.result.structuredContent, {
+  error: {
+    code: 'PAUSED_RISK',
+    data: {
+      cooldownUntil: '2026-07-17T00:00:00.000Z',
+      accessToken: '[redacted]',
+      nested: { apiKey: '[redacted]', state: 'PAUSED_RISK' }
+    }
+  }
+})
 
 const serverSource = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
 for (const toolName of [
@@ -94,7 +123,12 @@ for (const toolName of [
   'boss_update_app_data',
   'boss_list_ai_reply_approvals',
   'boss_approve_auto_reply',
-  'boss_require_human_intervention'
+  'boss_require_human_intervention',
+  'boss_get_safety_status',
+  'boss_list_chat_approvals',
+  'boss_approve_chat',
+  'boss_reject_chat',
+  'boss_resume_safety'
 ]) {
   assert.match(serverSource, new RegExp(toolName))
 }

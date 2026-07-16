@@ -5,7 +5,10 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { createApprovalService } from '../lib/services/approval-service.mjs'
+import { createSafetyPolicyService } from '../lib/services/safety-policy-service.mjs'
 import { createTaskService } from '../lib/services/task-service.mjs'
+import { createWorkerControlService } from '../lib/services/worker-control-service.mjs'
+import { runAutoChatEntry } from '../lib/workers/auto-chat.mjs'
 import { createWorkerReporter } from '../lib/workers/worker-reporter.mjs'
 
 function fakeChild(pid, { exitOnSignal = true } = {}) {
@@ -19,7 +22,166 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
     if (exitOnSignal || signal === 'SIGKILL') queueMicrotask(() => child.emit('exit', null, signal))
     return true
   }
+  child.sent = []
+  child.send = (message) => {
+    child.sent.push(message)
+    return true
+  }
   return child
+}
+
+{
+  let state = null
+  let now = new Date('2026-07-16T00:00:00.000Z')
+  const store = {
+    readState: async () => state,
+    transaction: async (callback) => callback({
+      readState: async () => state,
+      upsertState: async ({ scopeKey, state: next }) => {
+        state = { scopeKey, state: structuredClone(next) }
+        return state
+      },
+      insertEvent: async () => ({})
+    })
+  }
+  const policy = createSafetyPolicyService({
+    store,
+    accountHealthCheck: async () => true,
+    now: () => now,
+    config: { riskCooldownMs: 1_000 }
+  })
+  const spawnCalls = []
+  const service = createTaskService({
+    spawnProcess: () => {
+      spawnCalls.push(true)
+      return fakeChild(301)
+    },
+    workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+    admitStart: ({ runRecordId }) => policy.preflightStart({ runRecordId })
+  })
+
+  await policy.stopForQuota({ reason: 'daily chat limit reached' })
+  const quotaPause = await policy.status()
+  await assert.rejects(
+    service.start({ workerId: 'geekAutoStartWithBossMain' }),
+    (error) => error.code === 'PAUSED_QUOTA' && error.data?.eligibleAt === null
+  )
+  assert.equal(spawnCalls.length, 0, 'quota pauses must reject before a worker process is spawned')
+  assert.deepEqual(await policy.status(), quotaPause, 'quota admission rejection must not change the paused policy state')
+
+  await policy.resume()
+
+  await policy.detectRisk({ statusCode: 403 })
+  await assert.rejects(service.start({ workerId: 'geekAutoStartWithBossMain' }), { code: 'RISK_COOLDOWN_ACTIVE' })
+  assert.equal(spawnCalls.length, 0, 'risk cooldown must reject before a worker process is spawned')
+
+  now = new Date(now.getTime() + 1_001)
+  await assert.rejects(service.start({ workerId: 'geekAutoStartWithBossMain' }), { code: 'PAUSED_RISK' })
+  assert.equal(spawnCalls.length, 0, 'expired risk pauses still require manual resume before spawning')
+
+  await policy.resume()
+  await policy.detectRisk({ code: 'INVALID_LOGIN' })
+  await assert.rejects(service.start({ workerId: 'geekAutoStartWithBossMain' }), { code: 'INVALID_LOGIN_PAUSED' })
+  assert.equal(spawnCalls.length, 0, 'invalid-login pauses must reject before a worker process is spawned')
+
+  await policy.resume()
+  const started = await service.start({ workerId: 'geekAutoStartWithBossMain' })
+  assert.equal(spawnCalls.length, 1, 'an admitted auto-chat start creates exactly one child process')
+  assert.equal((await policy.status()).runRecordId, String(started.runRecordId), 'policy state must use the worker run record id')
+  await service.stop({ workerId: 'geekAutoStartWithBossMain' })
+}
+
+{
+  const spawnCalls = []
+  const child = fakeChild(98)
+  const received = []
+  const service = createTaskService({
+    spawnProcess: (...args) => { spawnCalls.push(args); return child },
+    workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+    workerControl: {
+      handle: async (message) => {
+        received.push(message)
+        return { state: 'RUNNING' }
+      }
+    }
+  })
+
+  const started = await service.start({ workerId: 'geekAutoStartWithBossMain' })
+  assert.deepEqual(spawnCalls[0][2].stdio, ['ignore', 'pipe', 'pipe', 'ipc'], 'auto-chat workers must receive a private IPC fd')
+  child.emit('message', {
+    ggrWorkerControl: 1,
+    requestId: 'state-1',
+    type: 'agent.state',
+    data: {},
+    workerId: 'spoofed-worker',
+    runRecordId: 'spoofed-run'
+  })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(received, [{ workerId: 'geekAutoStartWithBossMain', runRecordId: started.runRecordId, type: 'agent.state', data: {} }], 'worker identity must be derived from its child record')
+  assert.deepEqual(child.sent, [{ ggrWorkerControl: 1, requestId: 'state-1', ok: true, data: { state: 'RUNNING' } }], 'valid IPC requests must receive correlated responses')
+  child.emit('message', { ggrWorkerControl: 1, requestId: 'bad', type: 'not.allowed', data: {} })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(child.sent.length, 1, 'invalid IPC messages must be ignored')
+  await service.stop({ workerId: 'geekAutoStartWithBossMain' })
+}
+
+{
+  const events = []
+  const child = fakeChild(97)
+  let service
+  const workerControl = {
+    handle: async ({ type, workerId }) => {
+      if (type === 'risk.detected') await service.stop({ workerId, policyStop: true })
+      return { paused: true }
+    }
+  }
+  service = createTaskService({
+    spawnProcess: () => child,
+    workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+    workerControl,
+    emit: (event, data) => events.push({ event, data })
+  })
+
+  await service.start({ workerId: 'geekAutoStartWithBossMain' })
+  child.emit('message', { ggrWorkerControl: 1, requestId: 'risk-1', type: 'risk.detected', data: { statusCode: 403 } })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(child.killSignals, ['SIGTERM'])
+  const exit = events.find(({ event }) => event === 'task.exited')
+  assert.equal(exit?.data.restartSuppressed, true, 'policy stops must be visible as intentional restart suppression')
+}
+
+{
+  const child = fakeChild(96, { exitOnSignal: false })
+  let control
+  const service = createTaskService({
+    spawnProcess: () => child,
+    workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+    workerControl: { handle: (message) => control.handle(message) },
+    stopTimeoutMs: 50
+  })
+  control = createWorkerControlService({
+    policy: { detectRisk: async () => ({ status: 'PAUSED_RISK' }) },
+    task: service
+  })
+  await service.start({ workerId: 'geekAutoStartWithBossMain' })
+  const reply = new Promise((resolve) => {
+    child.send = (message) => {
+      child.sent.push(message)
+      queueMicrotask(() => child.emit('exit', null, 'SIGTERM'))
+      resolve(message)
+      return true
+    }
+  })
+  child.emit('message', { ggrWorkerControl: 1, requestId: 'risk-ack-1', type: 'risk.detected', data: { statusCode: 403 } })
+  assert.deepEqual(await Promise.race([
+    reply,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('risk reply waited for worker exit')), 25))
+  ]), {
+    ggrWorkerControl: 1,
+    requestId: 'risk-ack-1',
+    ok: true,
+    data: { status: 'PAUSED_RISK' }
+  }, 'risk persistence must acknowledge IPC before the worker is stopped')
 }
 
 {
@@ -338,13 +500,68 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
 }
 
 {
+  let state = null
+  const children = []
+  const scheduled = []
+  const events = []
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ggr-policy-restart-'))
+  const exitHistoryFile = path.join(tempDir, 'private', 'task-exits.json')
+  const store = {
+    readState: async () => state,
+    transaction: async (callback) => callback({
+      readState: async () => state,
+      upsertState: async ({ scopeKey, state: next }) => {
+        state = { scopeKey, state: structuredClone(next) }
+        return state
+      },
+      insertEvent: async () => ({})
+    })
+  }
+  const policy = createSafetyPolicyService({ store, accountHealthCheck: async () => true })
+  const service = createTaskService({
+    spawnProcess: () => {
+      const child = fakeChild(450 + children.length)
+      children.push(child)
+      return child
+    },
+    workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+    emit: (event, data) => events.push({ event, data }),
+    admitStart: ({ runRecordId }) => policy.preflightStart({ runRecordId }),
+    exitHistoryFile,
+    scheduleRestart(callback, delayMs) {
+      scheduled.push({ callback, delayMs })
+      return scheduled.length
+    },
+    restartPolicy: { maxRestarts: 1, windowMs: 60_000, initialDelayMs: 1, maxDelayMs: 1 }
+  })
+  try {
+    await service.start({ workerId: 'geekAutoStartWithBossMain' })
+    children[0].emit('exit', 1, null)
+    assert.equal(scheduled.length, 1, 'a failed auto-chat run must schedule one restart admission')
+
+    await policy.stopForQuota({ reason: 'quota reached before restart' })
+    await scheduled.shift().callback()
+
+    assert.equal(children.length, 1, 'a policy pause before the restart callback must create no replacement child')
+    const suppressed = events.find(({ event, data }) => event === 'task.exited' && data.restartSuppressed === true)
+    assert.equal(suppressed?.data.restartSuppressionCode, 'PAUSED_QUOTA')
+    const persisted = JSON.parse(await fs.readFile(exitHistoryFile, 'utf8'))
+    assert.equal(persisted.geekAutoStartWithBossMain.restartSuppressed, true)
+    assert.equal(persisted.geekAutoStartWithBossMain.restartSuppressionCode, 'PAUSED_QUOTA')
+  } finally {
+    await service.stopAll()
+    await fs.rm(tempDir, { recursive: true, force: true })
+  }
+}
+
+{
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ggr-task-safety-stop-'))
   const exitHistoryFile = path.join(tempDir, 'private', 'task-exits.json')
   const children = []
   const events = []
   const service = createTaskService({
     spawnProcess: () => {
-      const child = fakeChild(450 + children.length)
+      const child = fakeChild(550 + children.length)
       children.push(child)
       return child
     },
@@ -355,26 +572,64 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
   })
   try {
     await service.start({ workerId: 'geekAutoStartWithBossMain' })
-    children[0].stdout.emit('data', `${JSON.stringify({
-      ggrWorkerEvent: 1,
-      event: 'task.progress',
-      data: {
-        workerId: 'geekAutoStartWithBossMain',
-        state: 'runtime-error',
-        code: 'SAFETY_POLICY_STOP',
-        message: 'Safety channel unavailable',
-        reason: 'SAFETY_CHANNEL_UNAVAILABLE'
-      }
-    })}\n`)
+    const taskReporter = createWorkerReporter({ write: (line) => children[0].stdout.emit('data', line) })
+    await assert.rejects(runAutoChatEntry({
+      createRuntime: async () => { throw Object.assign(new Error('Boss cookies are required'), { code: 'SAFETY_POLICY_STOP' }) },
+      taskReporter,
+      shouldStop: async () => false
+    }), { code: 'SAFETY_POLICY_STOP' })
+    assert.deepEqual(events.filter(({ event, data }) => event === 'task.progress' && data.state === 'runtime-error').map(({ data }) => ({
+      code: data.code,
+      message: data.message
+    })), [{
+      code: 'SAFETY_POLICY_STOP',
+      message: 'Boss cookies are required'
+    }])
+    children[0].emit('exit', 1, null)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(children.length, 1, 'a safety policy stop must not spawn a replacement worker')
+    const [{ data: exited }] = events.filter(({ event }) => event === 'task.exited')
+    assert.equal(exited.restartSuppressed, true)
+    assert.equal(exited.restartSuppressionReason, 'SAFETY_POLICY_STOP')
+    const persisted = JSON.parse(await fs.readFile(exitHistoryFile, 'utf8'))
+    assert.equal(persisted.geekAutoStartWithBossMain.restartSuppressionReason, 'SAFETY_POLICY_STOP')
+  } finally {
+    await service.stopAll()
+    await fs.rm(tempDir, { recursive: true, force: true })
+  }
+}
+
+{
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ggr-task-failed-safety-stop-'))
+  const exitHistoryFile = path.join(tempDir, 'private', 'task-exits.json')
+  const children = []
+  const events = []
+  const service = createTaskService({
+    spawnProcess: () => {
+      const child = fakeChild(575 + children.length)
+      children.push(child)
+      return child
+    },
+    workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+    emit: (event, data) => events.push({ event, data }),
+    exitHistoryFile,
+    scheduleRestart(callback) { queueMicrotask(callback) }
+  })
+  try {
+    await service.start({ workerId: 'geekAutoStartWithBossMain' })
+    createWorkerReporter({ write: (line) => children[0].stdout.emit('data', line) }).emit('task.progress', {
+      workerId: 'geekAutoStartWithBossMain',
+      state: 'failed',
+      code: 'SAFETY_POLICY_STOP',
+      message: 'Safety policy stopped auto-chat'
+    })
     children[0].emit('exit', 1, null)
     await new Promise((resolve) => setImmediate(resolve))
 
-    assert.equal(children.length, 1, 'a safety policy stop must not spawn a replacement worker')
+    assert.equal(children.length, 1, 'a failed safety policy stop must not spawn a replacement worker')
     const [{ data: exited }] = events.filter(({ event }) => event === 'task.exited')
-    assert.equal(exited.restarting, false)
     assert.equal(exited.restartSuppressed, true)
     assert.equal(exited.restartSuppressionReason, 'SAFETY_POLICY_STOP')
-
     const persisted = JSON.parse(await fs.readFile(exitHistoryFile, 'utf8'))
     assert.equal(persisted.geekAutoStartWithBossMain.restartSuppressed, true)
     assert.equal(persisted.geekAutoStartWithBossMain.restartSuppressionReason, 'SAFETY_POLICY_STOP')

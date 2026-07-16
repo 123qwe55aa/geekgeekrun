@@ -2,12 +2,16 @@ import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { migrateLegacyApprovalQueue } from './migration-service.mjs'
 
 const PRIVATE_DIR_MODE = 0o700
 const PRIVATE_FILE_MODE = 0o600
 const LOCK_TIMEOUT_MS = 5000
 const LOCK_STALE_MS = 30000
 const LOCK_RETRY_MS = 25
+const AUTO_REPLY_KIND = 'AUTO_REPLY'
+const LEGACY_MIGRATION_KIND = 'MIGRATION'
+const LEGACY_APPROVAL_EXPIRY = new Date('9999-12-31T23:59:59.999Z')
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -18,6 +22,78 @@ function approvalDedupeKey(request) {
     request.jobTitle ?? '',
     request.latestHrMessage ?? ''
   ].join('\n')).digest('hex')
+}
+
+function autoReplyContext(request) {
+  return {
+    hrName: request.hrName ?? '',
+    company: request.company ?? '',
+    jobTitle: request.jobTitle ?? '',
+    latestHrMessage: request.latestHrMessage ?? '',
+    detectedIntent: request.detectedIntent ?? 'UNKNOWN',
+    draftReply: request.draftReply ?? '',
+    draftSource: request.draftSource ?? (request.draftReply ? 'model_review_draft' : 'none'),
+    draftSafety: request.draftSafety ?? 'needs_human_review',
+    reason: request.reason ?? '',
+    dedupeKey: request.dedupeKey ?? approvalDedupeKey(request),
+    ...(request.sentAt === undefined ? {} : { sentAt: request.sentAt })
+  }
+}
+
+function autoReplyContextHash(request) {
+  return createHash('sha256').update(`AUTO_REPLY\n${autoReplyContext(request).dedupeKey}`).digest('hex')
+}
+
+function toStoreStatus(status = 'pending') {
+  return ({
+    pending: 'PENDING',
+    approved_auto_reply: 'APPROVED',
+    human_required: 'REJECTED',
+    auto_reply_sent: 'SENT',
+    auto_reply_failed: 'FAILED',
+    auto_reply_expired: 'EXPIRED'
+  })[status] ?? `LEGACY_${String(status).toUpperCase()}`
+}
+
+function toLegacyStatus(status) {
+  return ({
+    PENDING: 'pending',
+    APPROVED: 'approved_auto_reply',
+    REJECTED: 'human_required',
+    SENT: 'auto_reply_sent',
+    FAILED: 'auto_reply_failed',
+    EXPIRED: 'auto_reply_expired'
+  })[status] ?? String(status).replace(/^LEGACY_/, '').toLowerCase()
+}
+
+function fromStoreApproval(approval) {
+  return {
+    ...approval.context,
+    id: approval.id,
+    createdAt: approval.createdAt,
+    status: toLegacyStatus(approval.status),
+    ...(approval.reviewedAt == null ? {} : { reviewedAt: approval.reviewedAt }),
+    ...(approval.reviewerNote == null ? {} : { reviewReason: approval.reviewerNote })
+  }
+}
+
+function toStoreApproval(request, clock) {
+  const createdAt = request.createdAt ?? clock().toISOString()
+  const status = toStoreStatus(request.status)
+  return {
+    id: request.id ?? randomUUID(),
+    kind: AUTO_REPLY_KIND,
+    status,
+    context: autoReplyContext(request),
+    contextHash: autoReplyContextHash(request),
+    requestedBy: 'read-no-reply',
+    reviewerNote: request.reviewReason ?? null,
+    reviewedAt: request.reviewedAt ?? (status === 'PENDING' ? null : createdAt),
+    expiresAt: LEGACY_APPROVAL_EXPIRY,
+    grantHash: null,
+    createdAt,
+    updatedAt: request.updatedAt ?? request.reviewedAt ?? createdAt
+  }
 }
 
 export function defaultApprovalQueueFilePath() {
@@ -311,6 +387,7 @@ async function withQueueLock(queueFilePath, operation, {
 
 export function createApprovalService({
   queueFilePath = defaultApprovalQueueFilePath(),
+  safetyStore,
   emit = () => {},
   clock = () => new Date(),
   lockTimeoutMs,
@@ -326,7 +403,56 @@ export function createApprovalService({
     heartbeatMs: lockHeartbeatMs,
     isProcessAlive
   }
+  let migration
+
+  async function ensureMigrated() {
+    if (!safetyStore) return
+    migration ??= (async () => {
+      const markerId = `legacy-auto-reply-queue:${createHash('sha256').update(queueFilePath).digest('hex')}`
+      let records
+      try {
+        const queue = await readQueueFile(queueFilePath)
+        if (!queue.length) return
+        const pendingContextHashes = new Set()
+        records = queue.map((request) => {
+          const record = toStoreApproval(request, clock)
+          if (record.status === 'PENDING' && pendingContextHashes.has(record.contextHash)) {
+            record.contextHash = createHash('sha256').update(`${record.contextHash}\n${record.id}`).digest('hex')
+          }
+          if (record.status === 'PENDING') pendingContextHashes.add(record.contextHash)
+          return record
+        })
+      } catch (error) {
+        if (error?.code === 'ENOENT') return
+        throw error
+      }
+      await migrateLegacyApprovalQueue({
+        queueFilePath,
+        store: safetyStore,
+        records,
+        marker: {
+          id: markerId,
+          kind: LEGACY_MIGRATION_KIND,
+          status: 'IMPORTED',
+          context: { source: 'hr-reply-approval-queue.json', version: 1 },
+          contextHash: markerId,
+          requestedBy: 'migration',
+          expiresAt: LEGACY_APPROVAL_EXPIRY,
+          createdAt: clock(),
+          updatedAt: clock()
+        }
+      })
+    })()
+    return migration
+  }
+
   async function list({ includeAll = false } = {}) {
+    if (safetyStore) {
+      await ensureMigrated()
+      const requests = await safetyStore.listApprovals({ kind: AUTO_REPLY_KIND })
+      const legacy = requests.map(fromStoreApproval)
+      return includeAll ? legacy : legacy.filter((item) => item.status === 'pending')
+    }
     return withQueueLock(queueFilePath, async () => {
       const queue = await readQueueFile(queueFilePath)
       if (!Array.isArray(queue)) return []
@@ -336,6 +462,32 @@ export function createApprovalService({
 
   async function update(updater) {
     if (typeof updater !== 'function') throw new Error('approval queue updater is required')
+    if (safetyStore) {
+      const before = await list({ includeAll: true })
+      const after = before.map((item) => ({ ...item }))
+      const result = await updater(after)
+      const beforeById = new Map(before.map((item) => [item.id, item]))
+      for (const item of after) {
+        const previous = beforeById.get(item.id)
+        if (!previous) {
+          await create(item)
+          continue
+        }
+        if (JSON.stringify(previous) === JSON.stringify(item)) continue
+        const stored = await safetyStore.getApproval(item.id)
+        if (!stored || stored.kind !== AUTO_REPLY_KIND) continue
+        const next = toStoreApproval(item, clock)
+        await safetyStore.updateApproval(item.id, {
+          status: next.status,
+          context: next.context,
+          contextHash: next.contextHash,
+          reviewerNote: next.reviewerNote,
+          reviewedAt: next.reviewedAt,
+          updatedAt: clock()
+        })
+      }
+      return result
+    }
     return withQueueLock(queueFilePath, async () => {
       const queue = await readQueueFile(queueFilePath)
       if (!Array.isArray(queue)) throw new Error('approval queue must be an array')
@@ -347,6 +499,22 @@ export function createApprovalService({
 
   async function setStatus({ id, status, reason = '', extra = {} }) {
     if (!id) throw Object.assign(new Error('approval id is required'), { code: 'INVALID_PARAMS' })
+    if (safetyStore) {
+      await ensureMigrated()
+      const existing = await safetyStore.getApproval(id)
+      if (!existing || existing.kind !== AUTO_REPLY_KIND) throw Object.assign(new Error(`Approval request not found: ${id}`), { code: 'INVALID_PARAMS' })
+      const current = fromStoreApproval(existing)
+      const next = toStoreApproval({ ...current, ...extra, status, reviewReason: reason }, clock)
+      const updated = await safetyStore.updateApproval(id, {
+        status: next.status,
+        context: next.context,
+        contextHash: next.contextHash,
+        reviewerNote: reason,
+        reviewedAt: clock(),
+        updatedAt: clock()
+      })
+      return fromStoreApproval(updated)
+    }
     return update((queue) => {
       const item = queue.find((request) => request.id === id)
       if (!item) throw Object.assign(new Error(`Approval request not found: ${id}`), { code: 'INVALID_PARAMS' })
@@ -363,6 +531,25 @@ export function createApprovalService({
   async function create(request) {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
       throw Object.assign(new Error('approval request must be an object'), { code: 'INVALID_PARAMS' })
+    }
+    if (safetyStore) {
+      await ensureMigrated()
+      const record = toStoreApproval(request, clock)
+      const existing = (await safetyStore.listApprovals({ kind: AUTO_REPLY_KIND, status: 'PENDING' }))
+        .find((item) => item.contextHash === record.contextHash)
+      if (existing) return { created: false, request: fromStoreApproval(existing) }
+      try {
+        const created = await safetyStore.transaction((tx) => tx.insertApproval(record))
+        const result = { created: true, request: fromStoreApproval(created) }
+        emit('approval.required', result.request)
+        return result
+      } catch (error) {
+        if (!/UNIQUE constraint failed/.test(error?.message)) throw error
+        const duplicate = (await safetyStore.listApprovals({ kind: AUTO_REPLY_KIND, status: 'PENDING' }))
+          .find((item) => item.contextHash === record.contextHash)
+        if (!duplicate) throw error
+        return { created: false, request: fromStoreApproval(duplicate) }
+      }
     }
     const result = await update((queue) => {
       const dedupeKey = request.dedupeKey ?? approvalDedupeKey(request)
@@ -397,7 +584,7 @@ export function createApprovalService({
     return item
   }
 
-  return { list, update, create, setStatus, approve, requireHuman }
+  return { list, update, create, setStatus, approve, requireHuman, initialize: ensureMigrated }
 }
 
 export function readApprovalQueue({ queueFilePath = defaultApprovalQueueFilePath(), includeAll = false } = {}) {

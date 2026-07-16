@@ -1,0 +1,73 @@
+import assert from 'node:assert/strict'
+
+import { createWorkerControlService } from '../lib/services/worker-control-service.mjs'
+
+const calls = []
+const policy = {
+  status: async () => ({ status: 'RUNNING' }),
+  recordBrowse: async (data) => { calls.push(['browse', data]); return { id: 'browse-1' } },
+  createAutoChatApproval: async (data) => { calls.push(['candidate', data]); return { id: 'approval-1' } },
+  consumeGrant: async (data) => { calls.push(['grant', data]); return { id: 'reservation-1' } },
+  recordChatResult: async (data) => { calls.push(['chat', data]); return { id: 'result-1' } },
+  detectRisk: async (data) => { calls.push(['risk', data]); return { status: 'PAUSED_RISK' } }
+}
+const stops = []
+const control = createWorkerControlService({
+  policy,
+  task: { stop: async (data) => { stops.push(data) } }
+})
+
+assert.deepEqual(await control.handle({ workerId: 'geekAutoStartWithBossMain', runRecordId: 7, type: 'agent.state', data: {} }), { status: 'RUNNING' })
+assert.deepEqual(await control.handle({ workerId: 'geekAutoStartWithBossMain', runRecordId: 7, type: 'browse.record', data: { jobId: 'job-1', workerId: 'spoofed', runRecordId: 'spoofed' } }), { id: 'browse-1' })
+assert.deepEqual(await control.handle({ workerId: 'geekAutoStartWithBossMain', runRecordId: 7, type: 'candidate.propose', data: { jobId: 'job-2', bossId: 'boss-2', companyId: 'company-2', workerId: 'spoofed', runRecordId: 'spoofed' } }), { id: 'approval-1' })
+assert.deepEqual(await control.handle({ workerId: 'geekAutoStartWithBossMain', runRecordId: 7, type: 'grant.consume', data: { grant: 'grant', jobId: 'job-3', bossId: 'boss-3', companyId: 'company-3', workerId: 'spoofed', runRecordId: 'spoofed' } }), { id: 'reservation-1' })
+assert.deepEqual(await control.handle({ workerId: 'geekAutoStartWithBossMain', runRecordId: 7, type: 'chat.result', data: { outcome: 'SENT', jobId: 'job-4', bossId: 'boss-4', companyId: 'company-4', workerId: 'spoofed', runRecordId: 'spoofed' } }), { id: 'result-1' })
+assert.deepEqual(await control.handle({ workerId: 'geekAutoStartWithBossMain', runRecordId: 7, type: 'risk.detected', data: { statusCode: 403 } }), { status: 'PAUSED_RISK' })
+
+for (const [, data] of calls) {
+  if (data.workerId !== undefined) assert.equal(data.workerId, 'geekAutoStartWithBossMain', 'worker identity must be derived by the backend')
+  if (data.runRecordId !== undefined) assert.equal(data.runRecordId, 7, 'run identity must be derived by the backend')
+}
+await new Promise((resolve) => setImmediate(resolve))
+assert.deepEqual(stops, [{ workerId: 'geekAutoStartWithBossMain', policyStop: true }], 'risk detection must intentionally stop its originating worker')
+await assert.rejects(control.handle({ workerId: 'geekAutoStartWithBossMain', runRecordId: 7, type: 'unknown', data: {} }), { code: 'INVALID_WORKER_CONTROL_TYPE' })
+
+{
+  let policyCalled = false
+  const readNoReplyControl = createWorkerControlService({
+    policy: {
+      consumeGrant: async () => { policyCalled = true }
+    },
+    task: { stop: async () => {} },
+    approval: {
+      list: async () => [],
+      create: async () => ({}),
+      setStatus: async () => ({})
+    }
+  })
+  await assert.rejects(
+    readNoReplyControl.handle({ workerId: 'readNoReplyAutoReminderMain', runRecordId: 9, type: 'grant.consume', data: { grant: 'forbidden' } }),
+    { code: 'INVALID_WORKER_CONTROL' }
+  )
+  assert.equal(policyCalled, false, 'read-no-reply must reject auto-chat controls before calling policy')
+}
+
+{
+  let resolveStop
+  let stopStarted = false
+  const deferredStop = new Promise((resolve) => { resolveStop = resolve })
+  const riskControl = createWorkerControlService({
+    policy: { detectRisk: async () => ({ status: 'PAUSED_RISK' }) },
+    task: { stop: async () => { stopStarted = true; await deferredStop } }
+  })
+  const reply = await Promise.race([
+    riskControl.handle({ workerId: 'geekAutoStartWithBossMain', runRecordId: 8, type: 'risk.detected', data: { statusCode: 403 } }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('risk reply waited for task termination')), 25))
+  ])
+  assert.deepEqual(reply, { status: 'PAUSED_RISK' }, 'risk persistence must acknowledge the worker before stopping it')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(stopStarted, true, 'risk acknowledgement must schedule a policy stop')
+  resolveStop()
+}
+
+console.log('ggr backend worker control service check passed')

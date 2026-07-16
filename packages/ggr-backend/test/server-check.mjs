@@ -1,14 +1,65 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs/promises'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 
 import { createGgrClient } from '@geekgeekrun/ggr-client'
+import { initDb } from '@geekgeekrun/sqlite-plugin'
 import { createBackendServer } from '../server.mjs'
 import { createRuntimePaths } from '../lib/runtime-paths.mjs'
 import { createConfigService } from '../lib/services/config-service.mjs'
 import { createLogger } from '../lib/logger.mjs'
+import { createRouter, registerServiceHandlers } from '../lib/router.mjs'
+
+async function rawSession(socketPath, requests) {
+  const socket = net.createConnection(socketPath)
+  return new Promise((resolve, reject) => {
+    let buffer = ''
+    const replies = []
+    socket.setEncoding('utf8')
+    socket.once('error', reject)
+    socket.on('data', (chunk) => {
+      buffer += chunk
+      let newline
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline)
+        buffer = buffer.slice(newline + 1)
+        if (!line) continue
+        replies.push(JSON.parse(line))
+        if (replies.length === requests.length) {
+          socket.end()
+          resolve(replies)
+        }
+      }
+    })
+    socket.on('connect', () => {
+      for (const request of requests) socket.write(`${JSON.stringify(request)}\n`)
+    })
+  })
+}
+
+{
+  const filters = []
+  const router = createRouter()
+  registerServiceHandlers(router, {
+    methods: { APPROVAL_LIST: 'approval.list' },
+    task: {},
+    approval: { list: async () => [] },
+    policy: {},
+    listSafetyApprovals: async (value) => { filters.push(value); return [] }
+  })
+
+  await router.dispatch({ method: 'approval.list', params: { kind: 'AUTO_CHAT' } })
+  await router.dispatch({ method: 'approval.list', params: { kind: 'AUTO_CHAT', status: 'REJECTED' } })
+  await router.dispatch({ method: 'approval.list', params: { includeAll: true, kind: 'AUTO_CHAT' } })
+  assert.deepEqual(filters, [
+    { kind: 'AUTO_CHAT', status: 'PENDING' },
+    { kind: 'AUTO_CHAT', status: 'REJECTED' },
+    { kind: 'AUTO_CHAT' }
+  ], 'filtered approval listing must preserve the pending default unless all statuses are requested')
+}
 
 const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ggr-backend-'))
 const runtimePaths = createRuntimePaths(tempHome)
@@ -169,6 +220,7 @@ try {
   assert.deepEqual(cancelledBrowserTasks, ['browser-task'])
   await assert.rejects(client.request('browser.cancel', {}), { code: 'INVALID_PARAMS' })
   await assert.rejects(client.request('browser.cancel', { taskId: 'browser-task', extra: true }), { code: 'INVALID_PARAMS' })
+  assert.deepEqual(await client.request('records.list', { resource: 'jobs' }), { items: [], total: 0, page: 1, pageSize: 10 })
   for (const forbidden of ['command', 'args', 'cwd', 'env']) {
     await assert.rejects(
       client.request('task.start', { workerId: 'auto', [forbidden]: 'forbidden' }),
@@ -206,6 +258,14 @@ try {
   await client.close()
   await backend.stop()
   await assert.rejects(fs.lstat(runtimePaths.backendSocket), { code: 'ENOENT' })
+
+  const migrated = await initDb(runtimePaths.databaseFile)
+  try {
+    const [{ name }] = await migrated.manager.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'ggr_safety_state'")
+    assert.equal(name, 'ggr_safety_state')
+  } finally {
+    await migrated.destroy()
+  }
 
   const log = await fs.readFile(runtimePaths.backendLog, 'utf8')
   const records = log.trim().split('\n').map(JSON.parse)
@@ -269,7 +329,7 @@ try {
       task: { list: () => [], stopAll: async () => { calls.push('task') } },
       approval: {},
       browser: { close: async () => { calls.push('browser'); throw new Error('browser close failed') } },
-      records: { close: async () => { calls.push('records') } },
+      records: { accountStatus: async () => ({ authenticated: false }), getDataSource: async () => {}, close: async () => { calls.push('records') } },
       config: { close: async () => { calls.push('config') } },
       logger: { write: async () => {}, close: async () => { calls.push('logger') } }
     }
@@ -297,7 +357,7 @@ try {
       task: { list: () => [], stopAll: async () => { calls.push('task') } },
       approval: {},
       browser: { close: async () => { calls.push('browser'); throw new Error('browser close failed') } },
-      records: { close: async () => { calls.push('records'); throw new Error('records close failed') } },
+      records: { accountStatus: async () => ({ authenticated: false }), getDataSource: async () => {}, close: async () => { calls.push('records'); throw new Error('records close failed') } },
       config: { close: async () => { calls.push('config') } },
       logger: { write: async () => {}, close: async () => { calls.push('logger') } }
     }
@@ -334,6 +394,172 @@ try {
   } finally {
     await delayedBackend.stop()
     await fs.rm(delayedHome, { recursive: true, force: true })
+  }
+}
+
+{
+  const policyHome = await fs.mkdtemp('/tmp/ggr-safety-rpc-')
+  const paths = createRuntimePaths(policyHome)
+  const reviewers = []
+  let resumeCount = 0
+  const policy = {
+    async status() { return { status: 'PAUSED_RISK' } },
+    getConfig() { return { chatPerHour: 5 } },
+    updateConfig(patch) { return patch },
+    async resume() {
+      resumeCount++
+      if (resumeCount === 2) {
+        throw Object.assign(new Error('auto-chat is paused after reaching a quota and requires manual resume'), {
+          code: 'PAUSED_QUOTA', data: { eligibleAt: null, reason: 'daily chat limit reached' }
+        })
+      }
+      throw Object.assign(new Error('auto-chat risk cooldown is active'), {
+        code: 'RISK_COOLDOWN_ACTIVE', data: { pausedUntil: '2026-07-17T00:00:00.000Z' }
+      })
+    },
+    async preflightStart() { return { status: 'RUNNING' } },
+    async approve({ id, actor }) { reviewers.push(actor); return { id, status: 'APPROVED' } },
+    async reject({ id, actor, reason }) { reviewers.push(actor); return { id, status: 'REJECTED', reason } }
+  }
+  const backend = await createBackendServer({
+    socketPath: paths.backendSocket,
+    version: '0.1.0',
+    runtimePaths: paths,
+    services: {
+      task: { list: () => [], start: async () => ({ workerId: 'auto', runRecordId: 1 }), stop: async () => {}, setUpdateDrain: () => {} },
+      approval: { list: () => [], create: () => {}, approve: () => {}, requireHuman: () => {} },
+      records: { accountStatus: async () => ({ authenticated: true }), getDataSource: async () => {}, close: async () => {} },
+      browser: { close: async () => {} },
+      logger: { write: async () => {}, close: async () => {} },
+      policy,
+      safetyStore: { getApproval: async (id) => id === 'policy-approval' ? { id, kind: 'AUTO_CHAT' } : null }
+    }
+  })
+  try {
+    await backend.start()
+    const [beforeHandshake] = await rawSession(paths.backendSocket, [
+      { id: 'before-handshake', method: 'system.health', params: {} }
+    ])
+    assert.equal(beforeHandshake.error.code, 'HANDSHAKE_REQUIRED')
+
+    const [, resume, quotaResume, approve] = await rawSession(paths.backendSocket, [
+      { id: 'handshake', method: 'system.handshake', params: { client: 'socket-client', clientVersion: '9.9.9', protocolVersion: 1 } },
+      { id: 'resume', method: 'safety.resume', params: {} },
+      { id: 'quota-resume', method: 'safety.resume', params: {} },
+      { id: 'approve', method: 'approval.approve', params: { id: 'policy-approval' } }
+    ])
+    assert.deepEqual(resume.error, {
+      code: 'RISK_COOLDOWN_ACTIVE',
+      message: 'auto-chat risk cooldown is active',
+      data: { pausedUntil: '2026-07-17T00:00:00.000Z' }
+    })
+    assert.deepEqual(quotaResume.error, {
+      code: 'PAUSED_QUOTA',
+      message: 'auto-chat is paused after reaching a quota and requires manual resume',
+      data: { eligibleAt: null, reason: 'daily chat limit reached' }
+    })
+    assert.deepEqual(approve.result, { id: 'policy-approval', status: 'APPROVED' })
+    assert.deepEqual(reviewers, [{ client: 'socket-client', clientVersion: '9.9.9' }])
+
+    const [actorHandshake, actorRequest] = await rawSession(paths.backendSocket, [
+      { id: 'actor-handshake', method: 'system.handshake', params: { client: 'socket-client', clientVersion: '9.9.9', protocolVersion: 1 } },
+      { id: 'actor-request', method: 'approval.approve', params: { id: 'policy-approval', actor: { client: 'forged', clientVersion: '0.0.0' } } }
+    ])
+    assert.deepEqual(actorHandshake.result.capabilities, ['safety-policy-v1'])
+    assert.equal(actorRequest.error.code, 'INVALID_PARAMS')
+    assert.equal(reviewers.length, 1)
+  } finally {
+    await backend.stop().catch(() => {})
+    await fs.rm(policyHome, { recursive: true, force: true })
+  }
+}
+
+{
+  const workerControlHome = await fs.mkdtemp('/tmp/ggr-worker-control-server-')
+  const paths = createRuntimePaths(workerControlHome)
+  const children = []
+  const exited = []
+  let reviewer
+  const backend = await createBackendServer({
+    socketPath: paths.backendSocket,
+    version: '0.1.0',
+    runtimePaths: paths,
+    services: {
+      workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+      spawnProcess: () => {
+        const child = new EventEmitter()
+        child.pid = 900 + children.length
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        child.kill = (signal) => { queueMicrotask(() => child.emit('exit', null, signal)); return true }
+        children.push(child)
+        return child
+      },
+      stopTimeoutMs: 10,
+      browser: { close: async () => {} },
+      llm: { request: async () => ({}) }
+    }
+  })
+  try {
+    await backend.start()
+    const client = createGgrClient({ socketPath: paths.backendSocket, client: 'test', clientVersion: '1.0.0' })
+    await client.connect()
+    client.onEvent((event) => { if (event.event === 'task.exited') exited.push(event.data) })
+
+    await client.request('task.start', { workerId: 'geekAutoStartWithBossMain' })
+    const child = children[0]
+    const candidateReply = new Promise((resolve) => { child.send = resolve })
+    child.emit('message', {
+      ggrWorkerControl: 1,
+      requestId: 'candidate-1',
+      type: 'candidate.propose',
+      data: { jobId: 'job-smoke', companyId: 'company-smoke', bossId: 'boss-smoke' }
+    })
+    const candidateResponse = await Promise.race([
+      candidateReply,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('server did not route worker candidate IPC')), 100))
+    ])
+    assert.equal(candidateResponse.ok, true)
+    assert.equal(typeof candidateResponse.data.id, 'string')
+    assert.equal(candidateResponse.data.context.workerId, 'geekAutoStartWithBossMain')
+    assert.equal((await client.request('approval.get', { id: candidateResponse.data.id })).status, 'PENDING')
+
+    reviewer = createGgrClient({
+      socketPath: paths.backendSocket,
+      client: 'ggr-cli',
+      clientVersion: '1.0.0'
+    })
+    await reviewer.connect()
+    assert.equal((await reviewer.request('approval.approve', { id: candidateResponse.data.id })).status, 'APPROVED')
+
+    const reply = new Promise((resolve) => { child.send = resolve })
+    child.emit('message', {
+      ggrWorkerControl: 1,
+      requestId: 'risk-1',
+      type: 'risk.detected',
+      data: { statusCode: 403, reason: 'Forbidden' }
+    })
+    const response = await Promise.race([
+      reply,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('server did not route worker risk IPC')), 100))
+    ])
+
+    assert.deepEqual(response, {
+      ggrWorkerControl: 1,
+      requestId: 'risk-1',
+      ok: true,
+      data: await client.request('safety.status')
+    })
+    assert.equal((await client.request('safety.status')).status, 'PAUSED_RISK')
+    assert.equal(children.length, 1, 'risk stop must not restart the auto-chat worker')
+    assert(exited.some((event) => event.workerId === 'geekAutoStartWithBossMain' && event.restartSuppressed === true))
+    await reviewer.close()
+    reviewer = null
+    await client.close()
+  } finally {
+    await reviewer?.close().catch(() => {})
+    await backend.stop().catch(() => {})
+    await fs.rm(workerControlHome, { recursive: true, force: true })
   }
 }
 

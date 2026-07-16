@@ -62,6 +62,18 @@ export function createBackendController({ client } = {}) {
     getStatus() {
       return backend.request(METHODS.SYSTEM_HEALTH, {})
     },
+    getSafetyStatus() {
+      return backend.request(METHODS.SAFETY_STATUS, {})
+    },
+    getSafetyConfig() {
+      return backend.request(METHODS.SAFETY_CONFIG_GET, {})
+    },
+    updateSafetyConfig({ patch } = {}) {
+      return backend.request(METHODS.SAFETY_CONFIG_UPDATE, { patch })
+    },
+    getAgentStatus() {
+      return backend.request(METHODS.AGENT_STATUS, {})
+    },
     async start({ headless = true, mode = 'auto', configPatch } = {}) {
       assertAutoMode(mode)
       await applyConfigPatch(configPatch)
@@ -83,12 +95,39 @@ export function createBackendController({ client } = {}) {
     listAiReplyApprovals({ includeAll = false } = {}) {
       return backend.request(METHODS.APPROVAL_LIST, { includeAll })
     },
+    listApprovals({ includeAll = false, kind, status } = {}) {
+      return backend.request(METHODS.APPROVAL_LIST, {
+        includeAll,
+        ...(kind === undefined ? {} : { kind }),
+        ...(status === undefined ? {} : { status })
+      })
+    },
+    getApproval({ id } = {}) {
+      return backend.request(METHODS.APPROVAL_GET, { id })
+    },
     createApprovalRequest(request = {}) {
       return backend.request(METHODS.APPROVAL_CREATE, { request })
     },
     approveAutoReply({ id, reason } = {}) {
       return backend.request(METHODS.APPROVAL_APPROVE, {
         id,
+        ...(reason === undefined ? {} : { reason })
+      })
+    },
+    approveApproval({ id, reason } = {}) {
+      return backend.request(METHODS.APPROVAL_APPROVE, {
+        id,
+        ...(reason === undefined ? {} : { reason })
+      })
+    },
+    rejectApproval({ id, reason } = {}) {
+      return backend.request(METHODS.APPROVAL_REJECT, {
+        id,
+        ...(reason === undefined ? {} : { reason })
+      })
+    },
+    resumeSafety({ reason } = {}) {
+      return backend.request(METHODS.SAFETY_RESUME, {
         ...(reason === undefined ? {} : { reason })
       })
     },

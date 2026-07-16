@@ -8,12 +8,16 @@ export const METHODS = Object.freeze({
   BROWSER_OPEN_LOGIN: 'browser.openLogin', BROWSER_OPEN_BOSS: 'browser.openBoss', BROWSER_PREPARE: 'browser.prepare',
   BROWSER_GET_AVAILABLE: 'browser.getAvailable', BROWSER_SET_EXECUTABLE: 'browser.setExecutable', BROWSER_CANCEL: 'browser.cancel',
   APPROVAL_LIST: 'approval.list', APPROVAL_CREATE: 'approval.create', APPROVAL_APPROVE: 'approval.approve',
-  APPROVAL_REQUIRE_HUMAN: 'approval.requireHuman'
+  APPROVAL_REQUIRE_HUMAN: 'approval.requireHuman', APPROVAL_GET: 'approval.get', APPROVAL_REJECT: 'approval.reject',
+  SAFETY_STATUS: 'safety.status', SAFETY_CONFIG_GET: 'safety.config.get', SAFETY_CONFIG_UPDATE: 'safety.config.update',
+  SAFETY_RESUME: 'safety.resume', AGENT_STATUS: 'agent.status'
 })
 
 export const EVENTS = Object.freeze({
   TASK_PROGRESS: 'task.progress', TASK_EXITED: 'task.exited',
-  APPROVAL_REQUIRED: 'approval.required', SYSTEM_STATUS: 'system.status'
+  APPROVAL_REQUIRED: 'approval.required', APPROVAL_APPROVED: 'approval.approved', APPROVAL_REJECTED: 'approval.rejected',
+  AGENT_STATE_CHANGED: 'agent.state_changed', CHAT_SENT: 'chat.sent', CHAT_FAILED: 'chat.failed', CHAT_UNKNOWN: 'chat.unknown',
+  QUOTA_BLOCKED: 'quota.blocked', RISK_DETECTED: 'risk.detected', RISK_CLEARED: 'risk.cleared', SYSTEM_STATUS: 'system.status'
 })
 
 export const createRequest = (id, method, params = {}) => ({ id, method, params })

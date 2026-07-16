@@ -75,6 +75,36 @@ ensureStorageFileExist()
 const isUiDev = process.env.NODE_ENV === 'development'
 export const autoStartChatEventBus = new EventEmitter()
 
+export async function runApprovedNewChatAttempt({
+  hooks = {}, page, targetJobData, startChatButtonProxy, waitForAddFriendResponse, handleAddFriendResponse, handleFailure
+} = {}) {
+  if (!page || typeof page.url !== 'function') throw new TypeError('page.url is required')
+  if (!startChatButtonProxy || typeof startChatButtonProxy.click !== 'function') throw new TypeError('startChatButtonProxy.click is required')
+  if (typeof waitForAddFriendResponse !== 'function' || typeof handleAddFriendResponse !== 'function') {
+    throw new TypeError('chat response handlers are required')
+  }
+  const context = { pageUrl: page.url(), job: targetJobData, sendControlPresent: Boolean(startChatButtonProxy) }
+  await hooks.newChatWillStartup?.promise(context)
+  let clickStarted = false
+  try {
+    const addFriendResponsePromise = waitForAddFriendResponse()
+    await hooks.newChatAttempted?.promise(context)
+    await startChatButtonProxy.click()
+    clickStarted = true
+    const response = await addFriendResponsePromise
+    await handleAddFriendResponse(response)
+    await hooks.newChatOutcome?.promise(context, 'sent')
+    return response
+  } catch (error) {
+    if (await handleFailure?.(error)) {
+      await hooks.newChatOutcome?.promise(context, 'sent')
+      return undefined
+    }
+    await hooks.newChatOutcome?.promise(context, clickStarted ? 'unknown' : 'failedPreAction')
+    throw error
+  }
+}
+
 /**
  * @type { import("puppeteer") }
  */
@@ -1536,7 +1566,6 @@ async function toRecommendPage (hooks) {
           await sleepWithRandomDelay(1000)
           const startChatButtonProxy = await findStartChatButton(page)
           if (!startChatButtonProxy) throw new Error('START_CHAT_BUTTON_NOT_FOUND')
-          await hooks.newChatWillStartup?.promise(targetJobData)
           await sleep(500)
 
           const waitAddFriendResponse = async () => {
@@ -1694,23 +1723,19 @@ async function toRecommendPage (hooks) {
               throw new Error('STARTUP_CHAT_ERROR_WITH_UNKNOWN_ERROR')
             }
           }
-          let res
-          try {
-            const addFriendResponsePromise = waitAddFriendResponse()
-            await startChatButtonProxy.click()
-            res = await addFriendResponsePromise
-            await handleAddFriendResponse(res)
-          }
-          catch (err) {
-            if (err instanceof Error && err.message === 'PAGE_JUMPED_TO_CHAT_PAGE') {
-              await handleAddFriendResponse({
-                code: 0
-              }, { hasGoToChatPage: true })
+          await runApprovedNewChatAttempt({
+            hooks,
+            page,
+            targetJobData,
+            startChatButtonProxy,
+            waitForAddFriendResponse: waitAddFriendResponse,
+            handleAddFriendResponse,
+            handleFailure: async (err) => {
+              if (!(err instanceof Error) || err.message !== 'PAGE_JUMPED_TO_CHAT_PAGE') return false
+              await handleAddFriendResponse({ code: 0 }, { hasGoToChatPage: true })
+              return true
             }
-            else {
-              throw err
-            }
-          }
+          })
         } catch (err) {
           if (err instanceof Error) {
             switch (err.message) {

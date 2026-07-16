@@ -23,6 +23,54 @@ const tools = [
     handler: () => agentService.getStatus()
   },
   {
+    name: 'boss_get_safety_status',
+    description: 'Return the persistent backend safety policy state and active rate limits.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: () => agentService.getSafetyStatus()
+  },
+  {
+    name: 'boss_list_chat_approvals',
+    description: 'List pending automatic-chat approval requests from the persistent local backend.',
+    inputSchema: {
+      type: 'object',
+      properties: { includeAll: { type: 'boolean', default: false } },
+      additionalProperties: false
+    },
+    handler: args => agentService.listApprovals({ ...args, kind: 'AUTO_CHAT' })
+  },
+  {
+    name: 'boss_approve_chat',
+    description: 'Approve one pending automatic-chat request. The backend worker consumes the approval itself.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, reason: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false
+    },
+    handler: args => agentService.approveApproval(args)
+  },
+  {
+    name: 'boss_reject_chat',
+    description: 'Reject one pending automatic-chat request so the backend worker cannot send it.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, reason: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false
+    },
+    handler: args => agentService.rejectApproval(args)
+  },
+  {
+    name: 'boss_resume_safety',
+    description: 'Ask the persistent backend to clear an eligible safety pause; backend cooldown checks still apply.',
+    inputSchema: {
+      type: 'object',
+      properties: { reason: { type: 'string' } },
+      additionalProperties: false
+    },
+    handler: args => agentService.resumeSafety(args)
+  },
+  {
     name: 'boss_start_agent',
     description: 'Start the automatic GeekGeekRun BOSS chat worker through the persistent local backend.',
     inputSchema: {

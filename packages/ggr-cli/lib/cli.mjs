@@ -81,8 +81,37 @@ export function createCli({
         result = await request(supervisorSocket, 'ggr-cli', methods[action])
         break
       }
+      case 'safety': {
+        const methods = {
+          status: 'safety.status',
+          config: 'safety.config.get',
+          resume: 'safety.resume'
+        }
+        const action = args[0]
+        if (!methods[action]) throw new Error(`Unsupported safety command: ${action ?? ''}`)
+        result = await request(backendSocket, 'ggr-cli', methods[action])
+        break
+      }
+      case 'approvals': {
+        const action = args[0]
+        const id = args[1]
+        const reason = args.slice(2).join(' ')
+        const withReason = reason ? { id, reason } : { id }
+        if (action === 'list') {
+          result = await request(backendSocket, 'ggr-cli', 'approval.list', { includeAll: false })
+        } else if (action === 'show') {
+          result = await request(backendSocket, 'ggr-cli', 'approval.get', { id })
+        } else if (action === 'approve') {
+          result = await request(backendSocket, 'ggr-cli', 'approval.approve', withReason)
+        } else if (action === 'reject') {
+          result = await request(backendSocket, 'ggr-cli', 'approval.reject', withReason)
+        } else {
+          throw new Error(`Unsupported approvals command: ${action ?? ''}`)
+        }
+        break
+      }
       default:
-        throw new Error('Usage: ggr <status|tasks|start|stop|update>')
+        throw new Error('Usage: ggr <status|tasks|start|stop|update|safety|approvals>')
     }
     write(json(result))
     return result

@@ -21,12 +21,28 @@ export declare const METHODS: Readonly<{
   APPROVAL_CREATE: 'approval.create'
   APPROVAL_APPROVE: 'approval.approve'
   APPROVAL_REQUIRE_HUMAN: 'approval.requireHuman'
+  APPROVAL_GET: 'approval.get'
+  APPROVAL_REJECT: 'approval.reject'
+  SAFETY_STATUS: 'safety.status'
+  SAFETY_CONFIG_GET: 'safety.config.get'
+  SAFETY_CONFIG_UPDATE: 'safety.config.update'
+  SAFETY_RESUME: 'safety.resume'
+  AGENT_STATUS: 'agent.status'
 }>
 
 export declare const EVENTS: Readonly<{
   TASK_PROGRESS: 'task.progress'
   TASK_EXITED: 'task.exited'
   APPROVAL_REQUIRED: 'approval.required'
+  APPROVAL_APPROVED: 'approval.approved'
+  APPROVAL_REJECTED: 'approval.rejected'
+  AGENT_STATE_CHANGED: 'agent.state_changed'
+  CHAT_SENT: 'chat.sent'
+  CHAT_FAILED: 'chat.failed'
+  CHAT_UNKNOWN: 'chat.unknown'
+  QUOTA_BLOCKED: 'quota.blocked'
+  RISK_DETECTED: 'risk.detected'
+  RISK_CLEARED: 'risk.cleared'
   SYSTEM_STATUS: 'system.status'
 }>
 

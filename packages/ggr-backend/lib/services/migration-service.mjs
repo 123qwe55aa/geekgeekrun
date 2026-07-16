@@ -9,6 +9,33 @@ const Database = sqlitePluginRequire('better-sqlite3')
 const PRIVATE_DIR_MODE = 0o700
 const PRIVATE_FILE_MODE = 0o600
 
+export async function migrateLegacyApprovalQueue({ queueFilePath, store, marker, records, fsOps = fs } = {}) {
+  if (!queueFilePath || !store?.transaction || !marker?.id || !Array.isArray(records)) throw new TypeError('queueFilePath, store, marker, and records are required')
+  const legacyQueue = await fsOps.readFile(queueFilePath, 'utf8').then(JSON.parse, (error) => {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  })
+  if (!legacyQueue) return { migrated: false, backupPath: null }
+  if (!Array.isArray(legacyQueue)) throw new Error('legacy approval queue must be an array')
+
+  const imported = await store.transaction(async (tx) => {
+    if (await tx.getApproval(marker.id)) return false
+    for (const record of records) {
+      if (!await tx.getApproval(record.id)) await tx.insertApproval(record)
+    }
+    await tx.insertApproval(marker)
+    return true
+  })
+  const backupPath = `${queueFilePath}.migrated-${Date.now()}-${randomUUID()}.bak`
+  await fsOps.rename(queueFilePath, backupPath).catch((error) => {
+    if (error?.code !== 'ENOENT') throw error
+  })
+  await fsOps.chmod(backupPath, PRIVATE_FILE_MODE).catch((error) => {
+    if (error?.code !== 'ENOENT') throw error
+  })
+  return { migrated: imported, backupPath }
+}
+
 function migrationError(code, message) { return Object.assign(new Error(message), { code }) }
 
 async function sqliteBackup(source, destination, openDatabase) {

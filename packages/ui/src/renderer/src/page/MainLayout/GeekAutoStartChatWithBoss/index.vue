@@ -1682,8 +1682,19 @@
             paddingRight: 'calc(20px + 16px)'
           }"
         >
+          <div v-if="autoChatPaused" class="auto-chat-safety-notice" role="status">
+            <template v-if="policyStatus.status === 'PAUSED_RISK'">
+              <strong>自动开聊因风险暂停</strong>
+              <span>{{ policyStatus.reason || '请完成登录或安全验证后再恢复。' }}</span>
+              <el-button size="small" :loading="isSafetyResuming" @click="handleSafetyResume">完成检查后恢复</el-button>
+            </template>
+            <template v-else>
+              <strong>自动开聊因配额暂停</strong>
+              <span>{{ policyStatus.reason || '当前配额已用尽，暂不提供开始操作。' }}</span>
+            </template>
+          </div>
           <el-button :disabled="isPresentationDataLoading" @click="handleSave">仅保存配置</el-button>
-          <el-button type="primary" :disabled="isPresentationDataLoading" @click="handleSubmit">
+          <el-button v-if="!autoChatPaused" type="primary" :disabled="startDisabled" @click="handleSubmit">
             保存配置，并开始求职！
           </el-button>
         </div>
@@ -2116,9 +2127,43 @@ const runRecordId = ref(null)
 const runningOverlayRef = ref(null)
 const taskManagerStore = useTaskManagerStore()
 const CURRENT_WORKER_ID = 'geekAutoStartWithBossMain'
+type PolicyStatus = { status?: string; reason?: string | null }
+const policyStatus = ref<PolicyStatus>({ status: 'LOADING' })
+const safetyLoaded = ref(false)
+const isSafetyResuming = ref(false)
+const autoChatPaused = computed(() => ['PAUSED_RISK', 'PAUSED_QUOTA'].includes(policyStatus.value.status ?? ''))
+const startDisabled = computed(() => isPresentationDataLoading.value || !safetyLoaded.value || autoChatPaused.value)
+
+async function refreshSafetyStatus() {
+  const status = await ipcRenderer.invoke('get-agent-safety-status') as { policy?: PolicyStatus }
+  policyStatus.value = status.policy ?? { status: 'IDLE' }
+  safetyLoaded.value = true
+}
+
+async function handleSafetyResume() {
+  if (policyStatus.value.status !== 'PAUSED_RISK') return
+  isSafetyResuming.value = true
+  try {
+    await ipcRenderer.invoke('resume-agent-safety')
+    await refreshSafetyStatus()
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('后端健康检查尚未允许恢复自动开聊。')
+  } finally {
+    isSafetyResuming.value = false
+  }
+}
+
+const handleAgentSafetyUpdated = () => {
+  void refreshSafetyStatus().catch((error) => console.error(error))
+}
 
 onMounted(async () => {
-  await taskManagerStore.getRunningTasks()
+  ipcRenderer.on('agent-safety-updated', handleAgentSafetyUpdated)
+  await Promise.all([
+    taskManagerStore.getRunningTasks(),
+    refreshSafetyStatus().catch((error) => console.error(error))
+  ])
   const existingWorker = taskManagerStore.runningTasks?.find(
     (it) => it.workerId === CURRENT_WORKER_ID
   )
@@ -2132,7 +2177,15 @@ onMounted(async () => {
   }
 })
 
+onUnmounted(() => {
+  ipcRenderer.removeListener('agent-safety-updated', handleAgentSafetyUpdated)
+})
+
 const handleSubmit = async () => {
+  if (!safetyLoaded.value || autoChatPaused.value) {
+    ElMessage.warning('自动开聊当前不可开始，请查看后端安全状态。')
+    return
+  }
   gtagRenderer('save_config_and_launch_clicked', {
     has_dingtalk_robot_token: !!formContent.value?.dingtalkRobotAccessToken,
     expect_job_name_reg_exp_str: formContent.value?.expectJobNameRegExpStr,

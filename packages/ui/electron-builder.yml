@@ -5,6 +5,7 @@ directories:
 icon: resources/icon.png
 files:
   - '!resources/ggrd-bootstrap/**'
+  - '!**/.codegraph/**'
   - '!**/.vscode/*'
   - '!src/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'

@@ -2,12 +2,15 @@ import assert from 'node:assert/strict'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createGgrClient } from '../index.mjs'
 
 const productionSource = await readFile(new URL('../index.mjs', import.meta.url), 'utf8')
 assert.match(productionSource, /from '@geekgeekrun\/ggr-protocol'/)
 assert.doesNotMatch(productionSource, /from ['"]\.\.\/ggr-protocol/)
+const require = createRequire(import.meta.url)
+assert.equal(typeof require('@geekgeekrun/ggr-client').createGgrClient, 'function', 'ggr client root export must support Electron main-process require')
 
 const tempDir = await mkdtemp(path.join(os.tmpdir(), 'ggr-client-'))
 const socketPath = process.platform === 'win32'

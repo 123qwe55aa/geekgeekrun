@@ -423,6 +423,36 @@ for (const [name, response] of [
 }
 
 {
+  let closes = 0
+  const service = createBrowserService({
+    createTaskId: () => 'completed-browser-task',
+    runtime: {
+      async openBoss({ onBrowserOpened }) {
+        onBrowserOpened({ async close() { closes++ } })
+      }
+    }
+  })
+  service.openBoss()
+  await until(() => service.getTask('completed-browser-task')?.state === 'completed', 'Boss browser task did not complete')
+  await service.cancel('completed-browser-task')
+  assert.equal(closes, 1, 'cancelling a completed Boss browser task must close its retained browser')
+}
+
+{
+  const service = createBrowserService({
+    createTaskId: () => 'closed-browser-service-task',
+    runtime: {
+      async openBoss({ onBrowserOpened }) { onBrowserOpened({ async close() {} }) }
+    }
+  })
+  service.openBoss()
+  await until(() => service.getTask('closed-browser-service-task')?.state === 'completed', 'Boss browser task did not complete')
+  await service.close()
+  assert.equal((await service.cancel('closed-browser-service-task'))?.state, 'completed',
+    'cancelling a completed task after browser service shutdown must remain safe')
+}
+
+{
   let finishPreparation
   let operationSignal
   let loginLaunches = 0

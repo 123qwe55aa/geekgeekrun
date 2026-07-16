@@ -41,11 +41,17 @@ export function createBrowserService({ runtime, emit = () => {}, createTaskId = 
     getTask: (taskId) => tasks.get(taskId) ?? null,
     async cancel(taskId) {
       const task = tasks.get(taskId)
-      if (!task || ['completed', 'failed', 'cancelled'].includes(task.state)) return task ?? null
+      if (!task) return null
       const resource = resources.get(taskId)
+      if (['completed', 'failed', 'cancelled'].includes(task.state)) {
+        await resource?.browser?.close?.()
+        if (resource) resource.browser = null
+        return task
+      }
       task.state = 'cancelled'
       resource?.controller.abort()
       await resource?.browser?.close?.()
+      if (resource) resource.browser = null
       emit('task.progress', { taskId, kind: task.kind, state: 'cancelled' })
       return task
     },

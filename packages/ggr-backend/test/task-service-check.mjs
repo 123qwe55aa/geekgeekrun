@@ -600,6 +600,46 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
 }
 
 {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ggr-task-failed-safety-stop-'))
+  const exitHistoryFile = path.join(tempDir, 'private', 'task-exits.json')
+  const children = []
+  const events = []
+  const service = createTaskService({
+    spawnProcess: () => {
+      const child = fakeChild(575 + children.length)
+      children.push(child)
+      return child
+    },
+    workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+    emit: (event, data) => events.push({ event, data }),
+    exitHistoryFile,
+    scheduleRestart(callback) { queueMicrotask(callback) }
+  })
+  try {
+    await service.start({ workerId: 'geekAutoStartWithBossMain' })
+    createWorkerReporter({ write: (line) => children[0].stdout.emit('data', line) }).emit('task.progress', {
+      workerId: 'geekAutoStartWithBossMain',
+      state: 'failed',
+      code: 'SAFETY_POLICY_STOP',
+      message: 'Safety policy stopped auto-chat'
+    })
+    children[0].emit('exit', 1, null)
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(children.length, 1, 'a failed safety policy stop must not spawn a replacement worker')
+    const [{ data: exited }] = events.filter(({ event }) => event === 'task.exited')
+    assert.equal(exited.restartSuppressed, true)
+    assert.equal(exited.restartSuppressionReason, 'SAFETY_POLICY_STOP')
+    const persisted = JSON.parse(await fs.readFile(exitHistoryFile, 'utf8'))
+    assert.equal(persisted.geekAutoStartWithBossMain.restartSuppressed, true)
+    assert.equal(persisted.geekAutoStartWithBossMain.restartSuppressionReason, 'SAFETY_POLICY_STOP')
+  } finally {
+    await service.stopAll()
+    await fs.rm(tempDir, { recursive: true, force: true })
+  }
+}
+
+{
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ggr-task-exits-'))
   const exitHistoryFile = path.join(tempDir, 'private', 'task-exits.json')
   const children = []

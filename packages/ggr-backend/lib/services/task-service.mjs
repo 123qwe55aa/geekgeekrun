@@ -296,7 +296,7 @@ export function createTaskService({
       if (event === 'task.progress' && (data.state === 'runtime-error' || data.state === 'failed')) {
         record.lastError = typeof data.message === 'string' ? data.message : record.lastError
         record.lastCloseError = typeof data.closeError?.message === 'string' ? data.closeError.message : record.lastCloseError
-        if (data.state === 'runtime-error' && typeof data.code === 'string') record.lastRuntimeErrorCode = data.code
+        if (typeof data.code === 'string') record.lastRuntimeErrorCode = data.code
       }
       emit(event, { ...data, workerId, runRecordId })
     }

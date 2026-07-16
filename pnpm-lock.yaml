@@ -228,6 +228,9 @@ importers:
       JSONStream:
         specifier: ^1.3.5
         version: 1.3.5
+      dayjs:
+        specifier: ^1.11.21
+        version: 1.11.21
       diff:
         specifier: ^7.0.0
         version: 7.0.0

@@ -31,6 +31,7 @@
     "@geekgeekrun/ggrd": "workspace:*",
     "@geekgeekrun/ggr-protocol": "workspace:*",
     "JSONStream": "^1.3.5",
+    "dayjs": "^1.11.21",
     "diff": "^7.0.0",
     "electron-updater": "^6.1.7",
     "lodash": "^4.17.21",

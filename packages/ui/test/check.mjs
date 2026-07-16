@@ -9,6 +9,9 @@ async function read(relativePath) {
   return fs.readFile(path.join(repoRoot, relativePath), 'utf8')
 }
 
+const uiPackage = JSON.parse(await read('packages/ui/package.json'))
+assert.ok(uiPackage.dependencies.dayjs, 'main-process dayjs must be declared as a production dependency for packaged Electron')
+
 const traySource = await read('packages/ui/src/main/features/tray.ts')
 assert.match(traySource, /import\s+\{[^}]*Tray[^}]*\}\s+from ['"]electron['"]/, 'tray feature must import Electron Tray')
 assert.match(traySource, /new\s+Tray\(/, 'tray feature must create a Tray instance')

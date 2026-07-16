@@ -38,9 +38,10 @@ import {
 } from './constant.mjs'
 import { parseSalary } from "@geekgeekrun/sqlite-plugin/dist/utils/parser.js"
 import { waitForSageTimeOrJustContinue } from './sage-time.mjs'
+import cityGroupData from './cityGroup.mjs'
 import { hasIntersection } from '@geekgeekrun/utils/number.mjs';
 import { isJobAddressInExpectedArea } from './area-filter.mjs'
-import { applyCityFilter } from './city-filter.mjs'
+import { applyCityFilter, resolveCityName } from './city-filter.mjs'
 import { findGreetCancelButton, findGreetSendButton, findSendButton, findStartChatButton, typeInChat, waitForText } from './dom-utils.mjs'
 
 const jobFilterConditionsMapByCode = {}
@@ -555,7 +556,7 @@ async function setFilterCondition (selectedFilters) {
         const clearButtonHandle = await page.$(`.page-jobs-main .filter-condition-inner [ka="empty-filter"]`)
         await clearButtonHandle.click()
       } else {
-        await applyCityFilter({ page, cityName: currentFilterConditions[0] })
+        await applyCityFilter({ page, cityName: resolveCityName(currentFilterConditions[0], cityGroupData) })
         await sleep(1000)
       }
     }

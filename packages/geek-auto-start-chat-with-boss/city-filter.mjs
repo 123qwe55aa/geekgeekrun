@@ -8,6 +8,16 @@ function cityFilterError(cause) {
   })
 }
 
+export function resolveCityName(configuredCity, cityGroups) {
+  if (typeof configuredCity === 'string' && configuredCity.trim() && !/^\d+$/.test(configuredCity.trim())) return configuredCity.trim()
+  const cityCode = String(configuredCity ?? '')
+  const city = (cityGroups?.zpData?.cityGroup ?? [])
+    .flatMap((group) => group.cityList ?? [])
+    .find((candidate) => String(candidate?.code) === cityCode)
+  if (!city?.name) throw cityFilterError()
+  return city.name
+}
+
 export async function applyCityFilter({ page, cityName }) {
   if (!page || typeof cityName !== 'string' || !cityName.trim()) throw cityFilterError()
   try {

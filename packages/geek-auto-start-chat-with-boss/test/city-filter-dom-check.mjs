@@ -1,7 +1,21 @@
 import assert from 'node:assert/strict'
 import puppeteer from 'puppeteer'
 
-import { applyCityFilter } from '../city-filter.mjs'
+import { applyCityFilter, resolveCityName } from '../city-filter.mjs'
+
+const cityGroups = {
+  zpData: {
+    cityGroup: [{
+      cityList: [{ code: 101280600, name: '深圳' }]
+    }]
+  }
+}
+
+assert.equal(resolveCityName(101280600, cityGroups), '深圳')
+assert.throws(
+  () => resolveCityName(999999999, cityGroups),
+  (error) => error?.code === 'CITY_FILTER_NOT_APPLIED'
+)
 
 const browser = await puppeteer.launch({ headless: true })
 try {

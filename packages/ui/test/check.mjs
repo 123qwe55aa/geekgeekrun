@@ -60,6 +60,18 @@ assert.match(autoChatRunningStatusSource, /resume-agent-safety/, 'risk recovery 
 assert.match(autoChatRunningStatusSource, /startDisabled[\s\S]{0,240}PAUSED_RISK/, 'start must be disabled for risk pauses')
 assert.match(autoChatRunningStatusSource, /startDisabled[\s\S]{0,240}PAUSED_QUOTA/, 'start must be disabled for quota pauses')
 assert.match(autoChatRunningStatusSource, /agent-safety-updated/, 'running page must subscribe to the main-process backend event relay')
+assert.match(autoChatRunningStatusSource, /quota\.browsePerDay/, 'running page must render the authoritative daily browse quota')
+assert.doesNotMatch(autoChatRunningStatusSource, /PAUSED_QUOTA[\s\S]{0,400}resume-agent-safety/, 'quota pauses must not offer the risk-resume operation')
+
+const autoChatConfigSource = await read('packages/ui/src/renderer/src/page/MainLayout/GeekAutoStartChatWithBoss/index.vue')
+assert.match(autoChatConfigSource, /get-agent-safety-status/, 'the live auto-chat start form must fetch backend safety state')
+assert.match(autoChatConfigSource, /autoChatPaused/, 'the live auto-chat start form must derive its start state from the policy')
+assert.match(autoChatConfigSource, /PAUSED_RISK/, 'the live auto-chat start form must recognize risk pauses')
+assert.match(autoChatConfigSource, /PAUSED_QUOTA/, 'the live auto-chat start form must recognize quota pauses')
+assert.match(autoChatConfigSource, /v-if="!autoChatPaused"[\s\S]{0,200}handleSubmit/, 'the live auto-chat start action must not be offered while paused')
+assert.match(autoChatConfigSource, /handleSafetyResume[\s\S]{0,180}PAUSED_RISK/, 'only a risk pause may invoke the explicit safety resume operation')
+assert.match(autoChatConfigSource, /policyStatus\.value\.status !== 'PAUSED_RISK'/, 'the explicit resume handler must reject non-risk states')
+assert.match(autoChatConfigSource, /agent-safety-updated/, 'the live auto-chat start form must refresh from the main-process relay')
 
 const cookieAssistantSource = await read('packages/ui/src/main/window/cookieAssistantWindow.ts')
 assert.match(cookieAssistantSource, /requestBackend<\{ taskId: string \}>\('browser\.openLogin'\)/, 'cookie UI must call the backend browser protocol')

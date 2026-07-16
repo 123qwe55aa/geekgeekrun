@@ -121,6 +121,26 @@ function normalizeState(record) {
   }
 }
 
+function quotaUsage(ledger, config, at) {
+  const today = dayKey(at, config.timezone)
+  const hourAgo = at.getTime() - 3_600_000
+  const browseUsed = ledger.filter((entry) => (
+    entry.actionType === 'BROWSE' &&
+    entry.status === 'RECORDED' &&
+    entry.details?.dayKey === today
+  )).length
+  const chatReservations = ledger.filter((entry) => (
+    entry.actionType === 'AUTO_CHAT' && entry.status === CHAT_RESERVATION
+  ))
+  const hourly = chatReservations.filter((entry) => new Date(entry.createdAt).getTime() > hourAgo)
+  const daily = chatReservations.filter((entry) => entry.details?.dayKey === today)
+  return {
+    browsePerDay: { used: browseUsed, limit: config.browsePerDay, period: 'calendar_day', dayKey: today },
+    chatPerHour: { used: hourly.length, limit: config.chatPerHour, period: 'rolling_hour' },
+    chatPerDay: { used: daily.length, limit: config.chatPerDay, period: 'calendar_day', dayKey: today }
+  }
+}
+
 function grantIdFrom(grant) {
   const separator = typeof grant === 'string' ? grant.indexOf('.') : -1
   return separator > 0 ? grant.slice(0, separator) : null
@@ -155,7 +175,12 @@ export function createSafetyPolicyService({
   }
 
   async function status() {
-    return normalizeState(await store.readState(AUTO_CHAT_SCOPE))
+    const at = timestamp()
+    const [state, ledger] = await Promise.all([
+      store.readState(AUTO_CHAT_SCOPE),
+      store.listLedger({ scopeKey: AUTO_CHAT_SCOPE })
+    ])
+    return { ...normalizeState(state), quota: quotaUsage(ledger, safetyConfig, at) }
   }
 
   function getConfig() {

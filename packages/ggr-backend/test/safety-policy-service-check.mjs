@@ -47,7 +47,12 @@ try {
     status: 'IDLE',
     pausedUntil: null,
     reason: null,
-    runRecordId: null
+    runRecordId: null,
+    quota: {
+      browsePerDay: { used: 0, limit: 2, period: 'calendar_day', dayKey: '2026-07-16' },
+      chatPerHour: { used: 0, limit: 2, period: 'rolling_hour' },
+      chatPerDay: { used: 0, limit: 3, period: 'calendar_day', dayKey: '2026-07-16' }
+    }
   })
   assert.equal((await policy.getConfig()).chatPerHour, 2)
   assert.equal((await policy.updateConfig({ chatPerHour: 1 })).chatPerHour, 1)
@@ -57,6 +62,13 @@ try {
   await policy.preflightStart({ runRecordId: candidate.runRecordId })
   await policy.recordBrowse({ runRecordId: candidate.runRecordId, jobId: 'browse-one' })
   await policy.recordBrowse({ runRecordId: candidate.runRecordId, jobId: 'browse-two' })
+  const quotaAfterBrowse = await policy.status()
+  assert.deepEqual(quotaAfterBrowse.quota, {
+    browsePerDay: { used: 2, limit: 2, period: 'calendar_day', dayKey: '2026-07-16' },
+    chatPerHour: { used: 0, limit: 2, period: 'rolling_hour' },
+    chatPerDay: { used: 0, limit: 3, period: 'calendar_day', dayKey: '2026-07-16' }
+  })
+  assert(!JSON.stringify(quotaAfterBrowse.quota).includes('browse-one'), 'quota status must not expose ledger identities')
   await assert.rejects(
     policy.recordBrowse({ runRecordId: candidate.runRecordId, jobId: 'browse-three' }),
     (error) => error.code === 'BROWSE_DAILY_QUOTA_EXCEEDED'

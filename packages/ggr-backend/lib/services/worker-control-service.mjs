@@ -71,7 +71,11 @@ export function createWorkerControlService({ policy, task, approval, scheduleSto
       case 'risk.detected': {
         const state = await policy.detectRisk(routedData)
         scheduleStop(() => { void Promise.resolve().then(() => task.stop({ workerId, policyStop: true })).catch(() => {}) })
-        return state
+        // Risk detection returns the state transition.  Append only the safe,
+        // aggregate quota counters when this policy implementation exposes
+        // them; never return raw ledger entries to a worker.
+        const status = typeof policy.status === 'function' ? await policy.status() : null
+        return status?.quota ? { ...state, quota: status.quota } : state
       }
       case 'approval.list':
       case 'approval.create':

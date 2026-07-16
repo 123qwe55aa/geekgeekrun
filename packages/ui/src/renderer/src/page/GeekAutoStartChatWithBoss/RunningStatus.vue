@@ -20,7 +20,6 @@
         <h2>配额暂停</h2>
         <p>{{ policyStatus.reason || '已达到后端配置的使用配额。' }}</p>
         <p>配额使用：{{ quotaSummary }}</p>
-        <el-button :loading="isResuming" @click="handleResumeSafety">恢复前重新检查</el-button>
       </section>
 
       <section class="safety-panel" aria-live="polite">
@@ -53,12 +52,16 @@ import FlyingCompanyLogoList from '../../features/FlyingCompanyLogoList/index.vu
 import { ElMessage } from 'element-plus'
 import { gtagRenderer } from '@renderer/utils/gtag'
 
+type QuotaCounter = { used: number; limit: number }
 type SafetyStatus = {
   status?: string
   reason?: string | null
   pausedUntil?: string | null
-  quota?: unknown
-  quotas?: unknown
+  quota?: {
+    browsePerDay?: QuotaCounter
+    chatPerHour?: QuotaCounter
+    chatPerDay?: QuotaCounter
+  }
 }
 type AgentSafetyStatus = { policy?: SafetyStatus; tasks?: Array<{ workerId?: string }> }
 type Approval = { id: string; context?: Record<string, unknown>; expiresAt?: string | null }
@@ -76,14 +79,16 @@ const policyStatus = computed(() => safetyStatus.value.policy ?? { status: 'IDLE
 const startDisabled = computed(() => ['PAUSED_RISK', 'PAUSED_QUOTA'].includes(policyStatus.value.status ?? 'IDLE'))
 const isRunning = computed(() => safetyStatus.value.tasks?.some((task) => task.workerId === BOSS_WORKER_ID) ?? false)
 const quotaSummary = computed(() => {
-  const quota = policyStatus.value.quota ?? policyStatus.value.quotas
-  if (quota === undefined || quota === null) return '后端暂未提供明细'
-  if (typeof quota === 'string' || typeof quota === 'number') return String(quota)
-  if (typeof quota === 'object') {
-    const value = quota as { used?: unknown; limit?: unknown }
-    if (value.used !== undefined || value.limit !== undefined) return `${value.used ?? 0} / ${value.limit ?? '—'}`
-  }
-  return '后端已报告配额状态'
+  const quota = policyStatus.value.quota
+  if (!quota) return '后端暂未提供明细'
+  return [
+    ['浏览', quota.browsePerDay],
+    ['每小时开聊', quota.chatPerHour],
+    ['每日开聊', quota.chatPerDay]
+  ].flatMap(([label, counter]) => {
+    const value = counter as QuotaCounter | undefined
+    return value ? [`${label} ${value.used}/${value.limit}`] : []
+  }).join('；') || '后端暂未提供明细'
 })
 
 async function refreshSafety() {

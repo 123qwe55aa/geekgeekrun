@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import puppeteer from 'puppeteer'
 
-import { findGreetCancelButton, findGreetSendButton, findSendButton, findStartChatButton, typeInChat, waitForText } from '../dom-utils.mjs'
+import { findChatInput, findGreetCancelButton, findGreetSendButton, findSendButton, findStartChatButton, typeInChat, waitForText } from '../dom-utils.mjs'
 
 const browser = await puppeteer.launch({ headless: true })
 try {
@@ -73,6 +73,20 @@ try {
   `)
   const sendButton = await findSendButton(page)
   assert.equal(await sendButton.evaluate((element) => element.id), 'chat-send')
+
+  await page.setContent(`
+    <form class="chat-input-box">
+      <textarea id="hidden-input" style="display:none"></textarea>
+      <textarea id="chat-input"></textarea>
+      <button id="hidden-send" class="btn-send" style="display:none">发送</button>
+      <button id="disabled-send" class="btn-send" disabled>发送</button>
+      <a id="chat-send-link" role="button">发送</a>
+    </form>
+  `)
+  const visibleInput = await findChatInput(page)
+  assert.equal(await visibleInput.evaluate((element) => element.id), 'chat-input', 'hidden composer templates must not be used')
+  const visibleSend = await findSendButton(page)
+  assert.equal(await visibleSend.evaluate((element) => element.id), 'chat-send-link', 'send lookup skips hidden and disabled controls')
 } finally {
   await browser.close()
 }

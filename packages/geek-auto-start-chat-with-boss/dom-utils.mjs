@@ -38,12 +38,31 @@ async function findVisibleButtonByText(scope, texts) {
 async function findVisibleActionByText(scope, texts) {
   const actions = await scope.$$(actionXPath(texts))
   for (const action of actions) {
-    if (await action.evaluate((element) => {
-      const style = window.getComputedStyle(element)
-      return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0
-    })) return action
+    if (await isVisibleAndEnabled(action)) return action
   }
   return null
+}
+
+async function isVisibleAndEnabled(element) {
+  return element.evaluate((node) => {
+    const style = window.getComputedStyle(node)
+    return !node.matches(':disabled, [aria-disabled="true"]') &&
+      style.display !== 'none' && style.visibility !== 'hidden' && node.getClientRects().length > 0
+  })
+}
+
+async function findVisibleSelector(scope, selectors, timeout) {
+  const deadline = Date.now() + timeout
+  while (true) {
+    for (const selector of selectors) {
+      for (const element of await scope.$$(selector)) {
+        if (await isVisibleAndEnabled(element)) return element
+      }
+    }
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) return null
+    await new Promise((resolve) => setTimeout(resolve, Math.min(100, remaining)))
+  }
 }
 
 export async function findStartChatButton(page, { detailSelector = '.job-detail-box' } = {}) {
@@ -93,17 +112,14 @@ export async function clickByText(page, text, { tag = '*', timeout = 5000 } = {}
  * semantically stable, with CSS class fallback.
  */
 export async function findChatInput(page, { timeout = 10000 } = {}) {
-  try {
-    // First try: contenteditable (semantic, rarely changes)
-    return await page.waitForSelector('[contenteditable="true"]', { timeout })
-  } catch {
-    try {
-      // Second try: textarea
-      return await page.waitForSelector('textarea', { timeout: 3000 })
-    } catch {
-      return null // caller handles
-    }
-  }
+  // The page keeps hidden composer templates in the DOM.  Returning one of
+  // those makes later typing appear to succeed while no message is sent.
+  return findVisibleSelector(page, [
+    '[contenteditable="true"]',
+    '[role="textbox"]',
+    'textarea',
+    'input[type="text"]'
+  ], timeout)
 }
 
 /**
@@ -115,7 +131,7 @@ export async function findSendButton(page, { timeout = 5000 } = {}) {
     const input = await findChatInput(page, { timeout })
     if (!input) return null
     const containerHandle = await input.evaluateHandle((element) =>
-      element.closest('form, .chat-input-box, .chat-conversation, [class*="chat-input"], [class*="chat"]') ?? element.parentElement
+      element.closest('form') ?? element.closest('.chat-input-box, [class*="chat-input"], .chat-conversation') ?? element.parentElement
     )
     const container = containerHandle.asElement()
     if (!container) return null
@@ -127,10 +143,11 @@ export async function findSendButton(page, { timeout = 5000 } = {}) {
       '[class*="icon-message-send"]',
     ]
     for (const sel of selectors) {
-      const el = await container.$(sel)
-      if (el) return el
+      for (const el of await container.$$(sel)) {
+        if (await isVisibleAndEnabled(el)) return el
+      }
     }
-    return findVisibleButtonByText(container, ['发送'])
+    return findVisibleActionByText(container, ['发送'])
   } catch {
     return null
   }
@@ -160,7 +177,7 @@ export async function findGreetSendButton(page, { timeout = 5000 } = {}) {
   while (true) {
     const dialogs = await page.$$('[role="dialog"], .greet-boss-dialog')
     for (const dialog of dialogs) {
-      const button = await findVisibleButtonByText(dialog, ['发送'])
+      const button = await findVisibleActionByText(dialog, ['发送'])
       if (button) return button
     }
     const remaining = deadline - Date.now()
@@ -172,7 +189,7 @@ export async function findGreetSendButton(page, { timeout = 5000 } = {}) {
 export async function findGreetCancelButton(page) {
   const dialogs = await page.$$('[role="dialog"], .greet-boss-dialog')
   for (const dialog of dialogs) {
-    const button = await findVisibleButtonByText(dialog, ['取消'])
+    const button = await findVisibleActionByText(dialog, ['取消'])
     if (button) return button
   }
   return null

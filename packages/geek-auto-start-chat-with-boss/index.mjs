@@ -43,7 +43,7 @@ import { hasIntersection } from '@geekgeekrun/utils/number.mjs';
 import { isJobAddressInExpectedArea } from './area-filter.mjs'
 import { applyCityFilter, resolveCityName } from './city-filter.mjs'
 import { requestPostDataOrEmpty } from './request-utils.mjs'
-import { findGreetCancelButton, findGreetSendButton, findSendButton, findStartChatButton, typeInChat, waitForText } from './dom-utils.mjs'
+import { findGreetSendButton, findSendButton, findStartChatButton, typeInChat, waitForText } from './dom-utils.mjs'
 
 const jobFilterConditionsMapByCode = {}
 Object.values(jobFilterConditions).forEach(arr => {
@@ -1610,6 +1610,17 @@ async function toRecommendPage (hooks) {
 
             const CUSTOM_OPENING = customOpeningMessage
 
+            const sendCustomOpening = async () => {
+              if (!CUSTOM_OPENING.trim()) return
+              const typed = await typeInChat(page, CUSTOM_OPENING)
+              if (!typed) throw new Error('CHAT_INPUT_NOT_FOUND')
+              const sendBtn = await findSendButton(page)
+              if (!sendBtn) throw new Error('CHAT_SEND_BUTTON_NOT_FOUND')
+              await sendBtn.click()
+              console.log('custom opening sent on chat page')
+              await sleep(1000)
+            }
+
             // Try to find and interact with the greet dialog first
             const greetSendBtn = await findGreetSendButton(page)
               ?? await page.$('.greet-boss-dialog .greet-boss-footer .btn-primary, .greet-boss-dialog .greet-boss-footer button:not(.cancel-btn)')
@@ -1618,18 +1629,7 @@ async function toRecommendPage (hooks) {
               await greetSendBtn.click()
               await sleepWithRandomDelay(3000)
               // Send custom opening on the chat page (we're already there due to addFriend redirect)
-              if (CUSTOM_OPENING.trim()) {
-                try {
-                  const sent = await typeInChat(page, CUSTOM_OPENING)
-                  if (sent) {
-                    const sendBtn = await findSendButton(page)
-                    if (sendBtn) { await sendBtn.click() }
-                    else { await page.keyboard.press('Enter') }
-                    console.log('custom opening sent on chat page')
-                    await sleep(1000)
-                  }
-                } catch(_e) { /* chat input not found */ }
-              }
+              await sendCustomOpening()
               // Go back to jobs page after sending
               if (page.url().startsWith('https://www.zhipin.com/web/geek/chat')) {
                 await page.goBack()
@@ -1645,31 +1645,14 @@ async function toRecommendPage (hooks) {
               // No greet dialog found - try to handle hasGoToChatPage case
               if (hasGoToChatPage) {
                 // Page already jumped to chat page, send custom opening here before going back
-                if (CUSTOM_OPENING.trim()) {
-                  try {
-                    const sent = await typeInChat(page, CUSTOM_OPENING)
-                    if (sent) {
-                      const sendBtn = await findSendButton(page)
-                      if (sendBtn) { await sendBtn.click() }
-                      else { await page.keyboard.press('Enter') }
-                      console.log('custom opening sent on chat page (no greet dialog)')
-                      await sleep(1000)
-                    }
-                  } catch(_e) { /* chat input not found */ }
-                }
+                await sendCustomOpening()
                 // Then go back to jobs page
                 await page.goBack()
                 await page.waitForFunction(() => {
                   return location.href.startsWith('https://www.zhipin.com/web/geek/jobs') && document.readyState === 'complete'
                 })
                 await sleepWithRandomDelay(2000)
-              } else {
-                const closeDialogButtonProxy = await findGreetCancelButton(page)
-                if (closeDialogButtonProxy) {
-                  await closeDialogButtonProxy.click()
-                  await sleepWithRandomDelay(2000)
-                }
-              }
+              } else throw new Error('CHAT_GREETING_DIALOG_NOT_FOUND')
             }
           }
           const handleAddFriendResponse = async (res, { hasGoToChatPage = false } = {}) => {

@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { createWorkerReporter } from './worker-reporter.mjs'
+import { createWorkerControlClient } from './worker-control-client.mjs'
 
 const WORKER_ID = 'geekAutoStartWithBossMain'
 
@@ -28,8 +29,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   process.once('SIGINT', () => { stopping = true })
   process.once('SIGTERM', () => { stopping = true })
   const { createAutoChatRuntime } = await import('./auto-chat-runtime.mjs')
+  const controlClient = createWorkerControlClient()
   await runAutoChat({
-    runtime: await createAutoChatRuntime(),
+    runtime: await createAutoChatRuntime({ controlClient }),
     taskReporter: createWorkerReporter(),
     shouldStop: async () => stopping
   })

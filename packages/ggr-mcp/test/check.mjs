@@ -56,6 +56,19 @@ assert.equal(connectCount, 1)
 assert.deepEqual(await service.getStatus(), { method: 'system.health', params: {} })
 assert.equal(connectCount, 2)
 assert.equal(requestCount, 2)
+assert.deepEqual(await service.getSafetyStatus(), { method: 'safety.status', params: {} })
+assert.deepEqual(await service.listApprovals({ includeAll: true, kind: 'AUTO_CHAT' }), {
+  method: 'approval.list', params: { includeAll: true, kind: 'AUTO_CHAT' }
+})
+assert.deepEqual(await service.approveApproval({ id: 'approval-1', reason: 'approved' }), {
+  method: 'approval.approve', params: { id: 'approval-1', reason: 'approved' }
+})
+assert.deepEqual(await service.rejectApproval({ id: 'approval-1', reason: 'rejected' }), {
+  method: 'approval.reject', params: { id: 'approval-1', reason: 'rejected' }
+})
+assert.deepEqual(await service.resumeSafety({ reason: 'cooldown checked' }), {
+  method: 'safety.resume', params: { reason: 'cooldown checked' }
+})
 
 const errorInput = new PassThrough()
 const errorOutput = new PassThrough()
@@ -94,7 +107,12 @@ for (const toolName of [
   'boss_update_app_data',
   'boss_list_ai_reply_approvals',
   'boss_approve_auto_reply',
-  'boss_require_human_intervention'
+  'boss_require_human_intervention',
+  'boss_get_safety_status',
+  'boss_list_chat_approvals',
+  'boss_approve_chat',
+  'boss_reject_chat',
+  'boss_resume_safety'
 ]) {
   assert.match(serverSource, new RegExp(toolName))
 }

@@ -65,6 +65,12 @@ export function createBackendController({ client } = {}) {
     getSafetyStatus() {
       return backend.request(METHODS.SAFETY_STATUS, {})
     },
+    getSafetyConfig() {
+      return backend.request(METHODS.SAFETY_CONFIG_GET, {})
+    },
+    updateSafetyConfig({ patch } = {}) {
+      return backend.request(METHODS.SAFETY_CONFIG_UPDATE, { patch })
+    },
     getAgentStatus() {
       return backend.request(METHODS.AGENT_STATUS, {})
     },

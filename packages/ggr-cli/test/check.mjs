@@ -39,6 +39,13 @@ const backend = await listen(backendSocket, (request) => {
   if (request.method === 'task.start') return { workerId: request.params.workerId, started: true }
   if (request.method === 'task.stop') return { workerId: request.params.workerId, stopped: true }
   if (request.method === 'task.list') return [{ workerId: 'auto-chat', status: 'running' }]
+  if (request.method === 'safety.status') return { state: 'RUNNING' }
+  if (request.method === 'safety.config.get') return { maxChatsPerHour: 5 }
+  if (request.method === 'safety.resume') return { state: 'RUNNING' }
+  if (request.method === 'approval.list') return [{ id: 'approval-1', kind: 'AUTO_CHAT' }]
+  if (request.method === 'approval.get') return { id: request.params.id, kind: 'AUTO_CHAT' }
+  if (request.method === 'approval.approve') return { id: request.params.id, status: 'APPROVED' }
+  if (request.method === 'approval.reject') return { id: request.params.id, status: 'REJECTED' }
   throw new Error(`Unexpected backend method: ${request.method}`)
 })
 const supervisor = await listen(supervisorSocket, (request) => {
@@ -66,6 +73,20 @@ assert.deepEqual(calls.at(-1), ['backend', 'task.stop', { workerId: 'readNoReply
 await cli.run(['update', 'check'])
 assert.deepEqual(JSON.parse(output.pop()), { available: '1.2.4' })
 assert.equal(calls.some(([target]) => target === 'supervisor'), true)
+await cli.run(['safety', 'status'])
+assert.deepEqual(calls.at(-1), ['backend', 'safety.status', {}])
+await cli.run(['safety', 'config'])
+assert.deepEqual(calls.at(-1), ['backend', 'safety.config.get', {}])
+await cli.run(['safety', 'resume'])
+assert.deepEqual(calls.at(-1), ['backend', 'safety.resume', {}])
+await cli.run(['approvals', 'list'])
+assert.deepEqual(calls.at(-1), ['backend', 'approval.list', { includeAll: false }])
+await cli.run(['approvals', 'show', 'approval-1'])
+assert.deepEqual(calls.at(-1), ['backend', 'approval.get', { id: 'approval-1' }])
+await cli.run(['approvals', 'approve', 'approval-1', 'looks good'])
+assert.deepEqual(calls.at(-1), ['backend', 'approval.approve', { id: 'approval-1', reason: 'looks good' }])
+await cli.run(['approvals', 'reject', 'approval-1', 'not now'])
+assert.deepEqual(calls.at(-1), ['backend', 'approval.reject', { id: 'approval-1', reason: 'not now' }])
 assert.doesNotMatch(await fs.readFile(new URL('../lib/cli.mjs', import.meta.url), 'utf8').catch(() => ''), /child_process/)
 
 await Promise.all([

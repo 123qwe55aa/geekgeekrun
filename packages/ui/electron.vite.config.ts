@@ -7,19 +7,6 @@ import transformerDirective from '@unocss/transformer-directives'
 import Replace from 'unplugin-replace/vite'
 
 process.env = { ...process.env, ...loadEnv(process.env.NODE_ENV!, process.cwd()) }
-function externalizeMainBareImportsPlugin() {
-  return {
-    name: 'externalize-main-bare-imports',
-    enforce: 'pre' as const,
-    resolveId(id: string) {
-      if (!id.startsWith('.') && !id.startsWith('/') && !id.startsWith('\0')) {
-        return { id, external: true }
-      }
-      return null
-    }
-  }
-}
-
 function forbidBackendImportsPlugin() {
   const backendImport = /(?:@geekgeekrun\/(?:pm|sqlite-plugin|geek-auto-start-chat-with-boss|puppeteer-extra-plugin-laodeng)|ggr-backend\/)/
   return {
@@ -35,7 +22,6 @@ function forbidBackendImportsPlugin() {
 
 const mainPlugins = [
   forbidBackendImportsPlugin(),
-  externalizeMainBareImportsPlugin(),
   externalizeDepsPlugin(),
   Replace({
     delimiters: ['', ''],

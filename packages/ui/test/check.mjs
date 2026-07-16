@@ -12,6 +12,10 @@ async function read(relativePath) {
 const uiPackage = JSON.parse(await read('packages/ui/package.json'))
 assert.ok(uiPackage.dependencies.dayjs, 'main-process dayjs must be declared as a production dependency for packaged Electron')
 
+const electronViteConfigSource = await read('packages/ui/electron.vite.config.ts')
+assert.doesNotMatch(electronViteConfigSource, /externalizeMainBareImportsPlugin/, 'main build must not externalize every bare import, or transitive runtime modules can be omitted from packaged Electron')
+assert.match(electronViteConfigSource, /externalizeDepsPlugin\(\)/, 'main build must retain normal production-dependency externalization')
+
 const traySource = await read('packages/ui/src/main/features/tray.ts')
 assert.match(traySource, /import\s+\{[^}]*Tray[^}]*\}\s+from ['"]electron['"]/, 'tray feature must import Electron Tray')
 assert.match(traySource, /new\s+Tray\(/, 'tray feature must create a Tray instance')

@@ -98,7 +98,7 @@ export function createCli({
         const reason = args.slice(2).join(' ')
         const withReason = reason ? { id, reason } : { id }
         if (action === 'list') {
-          result = await request(backendSocket, 'ggr-cli', 'approval.list', { includeAll: false })
+          result = await request(backendSocket, 'ggr-cli', 'approval.list', { includeAll: false, kind: 'AUTO_CHAT' })
         } else if (action === 'show') {
           result = await request(backendSocket, 'ggr-cli', 'approval.get', { id })
         } else if (action === 'approve') {

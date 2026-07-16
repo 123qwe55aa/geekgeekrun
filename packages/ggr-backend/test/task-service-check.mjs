@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { createApprovalService } from '../lib/services/approval-service.mjs'
+import { createSafetyPolicyService } from '../lib/services/safety-policy-service.mjs'
 import { createTaskService } from '../lib/services/task-service.mjs'
 import { createWorkerReporter } from '../lib/workers/worker-reporter.mjs'
 
@@ -20,6 +21,56 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
     return true
   }
   return child
+}
+
+{
+  let state = null
+  let now = new Date('2026-07-16T00:00:00.000Z')
+  const store = {
+    readState: async () => state,
+    transaction: async (callback) => callback({
+      readState: async () => state,
+      upsertState: async ({ scopeKey, state: next }) => {
+        state = { scopeKey, state: structuredClone(next) }
+        return state
+      },
+      insertEvent: async () => ({})
+    })
+  }
+  const policy = createSafetyPolicyService({
+    store,
+    accountHealthCheck: async () => true,
+    now: () => now,
+    config: { riskCooldownMs: 1_000 }
+  })
+  const spawnCalls = []
+  const service = createTaskService({
+    spawnProcess: () => {
+      spawnCalls.push(true)
+      return fakeChild(301)
+    },
+    workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+    admitStart: ({ runRecordId }) => policy.preflightStart({ runRecordId })
+  })
+
+  await policy.detectRisk({ statusCode: 403 })
+  await assert.rejects(service.start({ workerId: 'geekAutoStartWithBossMain' }), { code: 'RISK_COOLDOWN_ACTIVE' })
+  assert.equal(spawnCalls.length, 0, 'risk cooldown must reject before a worker process is spawned')
+
+  now = new Date(now.getTime() + 1_001)
+  await assert.rejects(service.start({ workerId: 'geekAutoStartWithBossMain' }), { code: 'PAUSED_RISK' })
+  assert.equal(spawnCalls.length, 0, 'expired risk pauses still require manual resume before spawning')
+
+  await policy.resume()
+  await policy.detectRisk({ code: 'INVALID_LOGIN' })
+  await assert.rejects(service.start({ workerId: 'geekAutoStartWithBossMain' }), { code: 'INVALID_LOGIN_PAUSED' })
+  assert.equal(spawnCalls.length, 0, 'invalid-login pauses must reject before a worker process is spawned')
+
+  await policy.resume()
+  const started = await service.start({ workerId: 'geekAutoStartWithBossMain' })
+  assert.equal(spawnCalls.length, 1, 'an admitted auto-chat start creates exactly one child process')
+  assert.equal((await policy.status()).runRecordId, String(started.runRecordId), 'policy state must use the worker run record id')
+  await service.stop({ workerId: 'geekAutoStartWithBossMain' })
 }
 
 {

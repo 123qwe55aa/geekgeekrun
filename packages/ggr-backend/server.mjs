@@ -30,18 +30,6 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
   const config = services.config ?? createConfigService({ configDir: runtimePaths.configDir, storageDir: runtimePaths.storageDir, clock })
   let rpc
   const emit = (event, data) => rpc?.publish(event, data)
-  const task = services.task ?? createTaskService({
-    spawnProcess: services.spawnProcess,
-    workerEntries: services.workerEntries ?? DEFAULT_WORKER_ENTRIES,
-    emit,
-    stopTimeoutMs: services.stopTimeoutMs,
-    exitHistoryFile: services.exitHistoryFile ?? path.join(runtimePaths.storageDir, 'task-exits.json')
-  })
-  const approval = services.approval ?? createApprovalService({
-    queueFilePath: path.join(runtimePaths.storageDir, 'hr-reply-approval-queue.json'),
-    emit,
-    clock
-  })
   const records = services.records ?? createRecordsService({ databaseFile: runtimePaths.databaseFile })
   const safetyStore = services.safetyStore ?? createSafetyStore({ getDataSource: records.getDataSource, now: clock ? () => clock() : undefined })
   const policy = services.policy ?? createSafetyPolicyService({
@@ -49,6 +37,21 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
     emit,
     accountHealthCheck: async () => (await records.accountStatus()).authenticated === true,
     now: clock ? () => clock() : undefined
+  })
+  const task = services.task ?? createTaskService({
+    spawnProcess: services.spawnProcess,
+    workerEntries: services.workerEntries ?? DEFAULT_WORKER_ENTRIES,
+    emit,
+    stopTimeoutMs: services.stopTimeoutMs,
+    admitStart: async ({ workerId, runRecordId }) => {
+      if (workerId === 'geekAutoStartWithBossMain') await policy.preflightStart({ runRecordId })
+    },
+    exitHistoryFile: services.exitHistoryFile ?? path.join(runtimePaths.storageDir, 'task-exits.json')
+  })
+  const approval = services.approval ?? createApprovalService({
+    queueFilePath: path.join(runtimePaths.storageDir, 'hr-reply-approval-queue.json'),
+    emit,
+    clock
   })
   const llm = services.llm ?? { request: requestNewMessageContent }
   const browser = services.browser ?? (() => {

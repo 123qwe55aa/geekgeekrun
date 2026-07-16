@@ -180,15 +180,18 @@ export function createTaskService({
   now = () => Date.now(),
   scheduleRestart = setTimeout,
   clearScheduledRestart = clearTimeout,
+  admitStart,
   exitHistoryFile
 }) {
   if (!workerEntries || typeof workerEntries !== 'object') throw new TypeError('workerEntries are required')
   if (!Number.isInteger(diagnosticLineBytes) || diagnosticLineBytes <= 0) throw new TypeError('diagnosticLineBytes must be a positive integer')
   if (!Number.isInteger(diagnosticStreamBytes) || diagnosticStreamBytes <= 0) throw new TypeError('diagnosticStreamBytes must be a positive integer')
+  if (admitStart !== undefined && typeof admitStart !== 'function') throw new TypeError('admitStart must be a function')
   const workers = new Map()
   const stoppedWorkers = new Set()
   const terminalChildren = new WeakSet()
   const stopPromises = new Map()
+  const startPromises = new Map()
   const restartStates = new Map()
   const exitHistory = readExitHistory(exitHistoryFile)
   let updateDrain = false
@@ -362,8 +365,20 @@ export function createTaskService({
     assertNotDraining()
     const running = workers.get(workerId)
     if (running) return snapshot(running)
-    stoppedWorkers.delete(workerId)
-    return launch(workerId, 0, startOptions, nextRunRecordId++, resetRestartState(workerId))
+    const starting = startPromises.get(workerId)
+    if (starting) return starting
+    const pending = (async () => {
+      stoppedWorkers.delete(workerId)
+      const runRecordId = nextRunRecordId++
+      if (admitStart) await admitStart({ workerId, runRecordId })
+      return launch(workerId, 0, startOptions, runRecordId, resetRestartState(workerId))
+    })()
+    startPromises.set(workerId, pending)
+    try {
+      return await pending
+    } finally {
+      if (startPromises.get(workerId) === pending) startPromises.delete(workerId)
+    }
   }
 
   async function stop({ workerId } = {}) {

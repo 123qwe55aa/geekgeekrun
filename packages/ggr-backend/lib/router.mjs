@@ -35,11 +35,9 @@ export function registerServiceHandlers(router, { methods, task, approval, polic
       onlyKeys(params, new Set())
       return task.list()
     })
-    .register(methods.TASK_START, async (params) => {
+    .register(methods.TASK_START, (params) => {
       onlyKeys(params, new Set(['workerId', 'options']))
-      const snapshot = await task.start(params)
-      if (params.workerId === 'geekAutoStartWithBossMain') await policy.preflightStart({ runRecordId: snapshot.runRecordId })
-      return snapshot
+      return task.start(params)
     })
     .register(methods.TASK_STOP, (params) => {
       onlyKeys(params, new Set(['workerId']))

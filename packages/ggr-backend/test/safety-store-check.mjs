@@ -73,6 +73,27 @@ try {
     reviewerNote: `Updated approval note: ${freeformSecret}`,
     reviewedAt: now
   })
+  const insertedReviewerSecret = 'electron@api-key-secret'
+  const updatedReviewerSecret = 'ggr-cli@token-secret'
+  const directInsertedApproval = await store.transaction((tx) => tx.insertApproval({
+    id: 'approval-reviewer-id-insert',
+    kind: 'AUTO_CHAT',
+    context: { companyId: 'company-reviewer-insert' },
+    contextHash: 'context-reviewer-insert',
+    reviewerId: insertedReviewerSecret,
+    expiresAt: new Date('2026-07-17T00:00:00.000Z')
+  }))
+  const directUpdatedApproval = await store.updateApproval('approval-one', {
+    reviewerId: updatedReviewerSecret,
+    reviewedAt: now
+  })
+  const rawReviewerValues = await database.query(
+    "SELECT reviewer_id AS value FROM ggr_approval_request WHERE id IN ('approval-reviewer-id-insert', 'approval-one')"
+  )
+  const semverReviewerApproval = await store.updateApproval('approval-one', {
+    reviewerId: 'electron@1.2.3',
+    reviewedAt: now
+  })
   const cooldown = await store.transaction((tx) => tx.setCompanyCooldown({
     companyKey: 'company-redacted',
     reason: `Cooldown reason: ${freeformSecret}`,
@@ -84,22 +105,31 @@ try {
     details: { safe: 'shown', authorization: `Bearer ${rawSecret}` }
   }))
   const storedValues = await database.query(
-    "SELECT payload_json AS value FROM ggr_safety_event WHERE type = 'risk.detected' UNION ALL SELECT context_json AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT reviewer_id AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT reviewer_note AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT state_json AS value FROM ggr_safety_state WHERE scope_key = 'redacted-state' UNION ALL SELECT reason AS value FROM ggr_company_cooldown WHERE company_key = 'company-redacted' UNION ALL SELECT details_json AS value FROM ggr_action_ledger WHERE id = ?",
+    "SELECT payload_json AS value FROM ggr_safety_event WHERE type = 'risk.detected' UNION ALL SELECT context_json AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT reviewer_id AS value FROM ggr_approval_request WHERE id IN ('approval-redacted', 'approval-reviewer-id-insert', 'approval-one') UNION ALL SELECT reviewer_note AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT state_json AS value FROM ggr_safety_state WHERE scope_key = 'redacted-state' UNION ALL SELECT reason AS value FROM ggr_company_cooldown WHERE company_key = 'company-redacted' UNION ALL SELECT details_json AS value FROM ggr_action_ledger WHERE id = ?",
     [ledger.id]
   )
   const storedEvent = (await store.listEvents({ type: 'risk.detected' })).at(-1)
   const storedApproval = await store.getApproval('approval-redacted')
   const storedState = await store.readState('redacted-state')
   const storedLedger = (await store.listLedger({ actionType: 'AUTO_CHAT' })).at(-1)
-  const returnedDtos = [event, approval, state, updatedApproval, cooldown, ledger, storedEvent, storedApproval, storedState, storedLedger]
+  const returnedDtos = [event, approval, state, updatedApproval, directInsertedApproval, directUpdatedApproval, cooldown, ledger, storedEvent, storedApproval, storedState, storedLedger]
   assert(!JSON.stringify(storedValues).includes(rawSecret), 'SQLite must not persist raw secrets')
   assert(!JSON.stringify(returnedDtos).includes(rawSecret), 'safety DTOs must not return raw secrets')
+  assert(!JSON.stringify(rawReviewerValues).includes(insertedReviewerSecret), 'SQLite must not persist reviewer ID secrets inserted directly through the store')
+  assert(!JSON.stringify(rawReviewerValues).includes(updatedReviewerSecret), 'SQLite must not persist reviewer ID secrets updated directly through the store')
+  assert(!JSON.stringify(storedValues).includes(insertedReviewerSecret), 'SQLite must not persist reviewer ID secrets inserted directly through the store')
+  assert(!JSON.stringify(storedValues).includes(updatedReviewerSecret), 'SQLite must not persist reviewer ID secrets updated directly through the store')
+  assert(!JSON.stringify(returnedDtos).includes(insertedReviewerSecret), 'safety DTOs must not return reviewer ID secrets inserted directly through the store')
+  assert(!JSON.stringify(returnedDtos).includes(updatedReviewerSecret), 'safety DTOs must not return reviewer ID secrets updated directly through the store')
   assert.deepEqual(storedEvent, event, 'event JSON and timestamp must round-trip')
   assert.deepEqual(storedApproval, updatedApproval, 'approval JSON and timestamps must round-trip')
   assert.deepEqual(storedState, state, 'state JSON and timestamp must round-trip')
   assert.equal(event.createdAt, now.toISOString())
   assert.equal(approval.createdAt, now.toISOString())
   assert.equal(approval.context.safe, 'shown')
+  assert.equal(directInsertedApproval.reviewerId, '[redacted]')
+  assert.equal(directUpdatedApproval.reviewerId, '[redacted]')
+  assert.equal(semverReviewerApproval.reviewerId, 'electron@1.2.3')
 } finally {
   await store.close()
   await database.destroy()

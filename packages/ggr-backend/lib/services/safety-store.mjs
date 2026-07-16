@@ -1,7 +1,7 @@
 const REDACTED_SECRET = '[redacted]'
 const SENSITIVE_FIELD_PATTERN = /(api[-_]?key|access[-_]?key|private[-_]?key|token|cookie|password|secret|credential|authorization|auth|webhook)/i
 const SENSITIVE_ASSIGNMENT_PATTERN = /((?:api[-_]?key|access[-_]?key|private[-_]?key|token|cookie|password|secret|credential|authorization|webhook)\s*[=:]\s*)(?:\[redacted\]|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|Bearer\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)|[^\s,;}\]]+)/gi
-const NORMALIZED_REVIEWER_ID_PATTERN = /^(?:electron|ggr-cli|ggr-mcp)@[A-Za-z0-9._+-]+$/
+const NORMALIZED_REVIEWER_ID_PATTERN = /^(?:electron|ggr-cli|ggr-mcp)@\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/
 
 function toIso(value) {
   return (value instanceof Date ? value : new Date(value)).toISOString()

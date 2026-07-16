@@ -80,6 +80,7 @@ try {
       <textarea id="chat-input"></textarea>
       <button id="hidden-send" class="btn-send" style="display:none">发送</button>
       <button id="disabled-send" class="btn-send" disabled>发送</button>
+      <button id="class-disabled-send" class="btn-send disabled">发送</button>
       <a id="chat-send-link" role="button">发送</a>
     </form>
   `)
@@ -87,6 +88,15 @@ try {
   assert.equal(await visibleInput.evaluate((element) => element.id), 'chat-input', 'hidden composer templates must not be used')
   const visibleSend = await findSendButton(page)
   assert.equal(await visibleSend.evaluate((element) => element.id), 'chat-send-link', 'send lookup skips hidden and disabled controls')
+
+  await page.setContent(`
+    <section class="chat-conversation">
+      <div class="message-controls"><textarea id="composer"></textarea></div>
+      <div class="chat-op"><button id="sibling-send" class="btn-send">发送</button></div>
+    </section>
+  `)
+  const siblingSend = await findSendButton(page)
+  assert.equal(await siblingSend.evaluate((element) => element.id), 'sibling-send', 'send lookup supports BOSS sibling composer controls')
 } finally {
   await browser.close()
 }

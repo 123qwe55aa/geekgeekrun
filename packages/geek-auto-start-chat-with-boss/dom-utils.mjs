@@ -46,7 +46,7 @@ async function findVisibleActionByText(scope, texts) {
 async function isVisibleAndEnabled(element) {
   return element.evaluate((node) => {
     const style = window.getComputedStyle(node)
-    return !node.matches(':disabled, [aria-disabled="true"]') &&
+    return !node.matches(':disabled, .disabled, [aria-disabled="true"]') &&
       style.display !== 'none' && style.visibility !== 'hidden' && node.getClientRects().length > 0
   })
 }
@@ -147,7 +147,16 @@ export async function findSendButton(page, { timeout = 5000 } = {}) {
         if (await isVisibleAndEnabled(el)) return el
       }
     }
-    return findVisibleActionByText(container, ['发送'])
+    const localTextButton = await findVisibleActionByText(container, ['发送'])
+    if (localTextButton) return localTextButton
+    // Current BOSS chat pages render the composer input and the send action
+    // as siblings, so the action is outside the input's nearest container.
+    return findVisibleSelector(page, [
+      '.chat-conversation .message-controls .chat-op .btn-send:not(.disabled)',
+      '.chat-conversation .message-controls [class*="btn-send"]:not(.disabled)',
+      '.chat-conversation [data-testid="send-button"]',
+      '.chat-conversation [class*="icon-message-send"]'
+    ], timeout)
   } catch {
     return null
   }

@@ -10,6 +10,8 @@ const SENSITIVE_KEYS = 'apiKey|accessKey|token|password|secret|credential|webhoo
 const ALLOWED_WORKER_EVENTS = new Set(['task.progress', 'approval.required'])
 const SENSITIVE_ASSIGNMENT = new RegExp(`(?:["']?)(?:${SENSITIVE_KEYS})(?:["']?)\\s*[=:]\\s*`, 'gi')
 const SENSITIVE_KEY = new RegExp(SENSITIVE_KEYS, 'i')
+const AUTO_CHAT_WORKER_ID = 'geekAutoStartWithBossMain'
+const SAFETY_POLICY_STOP = 'SAFETY_POLICY_STOP'
 
 function positiveInteger(value, fallback) {
   return Number.isInteger(value) && value > 0 ? value : fallback
@@ -258,6 +260,7 @@ export function createTaskService({
       stderrDiagnosticBytes: 0,
       lastError: null,
       lastCloseError: null,
+      lastRuntimeErrorCode: null,
       lastExit: exitHistory.get(workerId) ?? null
     }
     workers.set(workerId, record)
@@ -270,6 +273,7 @@ export function createTaskService({
       if (event === 'task.progress' && (data.state === 'runtime-error' || data.state === 'failed')) {
         record.lastError = typeof data.message === 'string' ? data.message : record.lastError
         record.lastCloseError = typeof data.closeError?.message === 'string' ? data.closeError.message : record.lastCloseError
+        if (data.state === 'runtime-error' && typeof data.code === 'string') record.lastRuntimeErrorCode = data.code
       }
       emit(event, { ...data, workerId, runRecordId })
     }
@@ -284,9 +288,12 @@ export function createTaskService({
       resetCarry(record.stdoutCarry)
       resetCarry(record.stderrCarry)
       if (workers.get(workerId) === record) workers.delete(workerId)
+      const policyStopped = workerId === AUTO_CHAT_WORKER_ID && code !== 0 && record.lastRuntimeErrorCode === SAFETY_POLICY_STOP
+      if (policyStopped) stoppedWorkers.add(workerId)
       const restartEligible = !stoppedWorkers.has(workerId) && code !== 0
       let restarting = false
-      let restartSuppressed = false
+      let restartSuppressed = policyStopped
+      const restartSuppressionReason = policyStopped ? SAFETY_POLICY_STOP : null
       let restartDelayMs
       if (restartEligible) {
         const timestamp = now()
@@ -310,6 +317,7 @@ export function createTaskService({
         restarting,
         restartCount: restartCount + (restarting ? 1 : 0),
         restartSuppressed,
+        restartSuppressionReason,
         error: record.lastError ?? (error ? redactLine(error.message) : null),
         closeError: record.lastCloseError ?? null,
         unexpected: unexpectedExit
@@ -335,6 +343,7 @@ export function createTaskService({
         restartCount: restartCount + (restarting ? 1 : 0),
         ...(restartDelayMs ? { restartDelayMs } : {}),
         ...(restartSuppressed ? { restartSuppressed: true } : {}),
+        ...(restartSuppressionReason ? { restartSuppressionReason } : {}),
         ...(lastExit.error ? { error: lastExit.error } : {}),
         ...(lastExit.closeError ? { closeError: lastExit.closeError } : {})
       })

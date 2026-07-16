@@ -479,6 +479,7 @@ try {
   const paths = createRuntimePaths(workerControlHome)
   const children = []
   const exited = []
+  let reviewer
   const backend = await createBackendServer({
     socketPath: paths.backendSocket,
     version: '0.1.0',
@@ -507,6 +508,30 @@ try {
 
     await client.request('task.start', { workerId: 'geekAutoStartWithBossMain' })
     const child = children[0]
+    const candidateReply = new Promise((resolve) => { child.send = resolve })
+    child.emit('message', {
+      ggrWorkerControl: 1,
+      requestId: 'candidate-1',
+      type: 'candidate.propose',
+      data: { jobId: 'job-smoke', companyId: 'company-smoke', bossId: 'boss-smoke' }
+    })
+    const candidateResponse = await Promise.race([
+      candidateReply,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('server did not route worker candidate IPC')), 100))
+    ])
+    assert.equal(candidateResponse.ok, true)
+    assert.equal(typeof candidateResponse.data.id, 'string')
+    assert.equal(candidateResponse.data.context.workerId, 'geekAutoStartWithBossMain')
+    assert.equal((await client.request('approval.get', { id: candidateResponse.data.id })).status, 'PENDING')
+
+    reviewer = createGgrClient({
+      socketPath: paths.backendSocket,
+      client: 'ggr-cli',
+      clientVersion: '1.0.0'
+    })
+    await reviewer.connect()
+    assert.equal((await reviewer.request('approval.approve', { id: candidateResponse.data.id })).status, 'APPROVED')
+
     const reply = new Promise((resolve) => { child.send = resolve })
     child.emit('message', {
       ggrWorkerControl: 1,
@@ -528,8 +553,11 @@ try {
     assert.equal((await client.request('safety.status')).status, 'PAUSED_RISK')
     assert.equal(children.length, 1, 'risk stop must not restart the auto-chat worker')
     assert(exited.some((event) => event.workerId === 'geekAutoStartWithBossMain' && event.restartSuppressed === true))
+    await reviewer.close()
+    reviewer = null
     await client.close()
   } finally {
+    await reviewer?.close().catch(() => {})
     await backend.stop().catch(() => {})
     await fs.rm(workerControlHome, { recursive: true, force: true })
   }

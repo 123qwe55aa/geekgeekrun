@@ -20,6 +20,11 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
     if (exitOnSignal || signal === 'SIGKILL') queueMicrotask(() => child.emit('exit', null, signal))
     return true
   }
+  child.sent = []
+  child.send = (message) => {
+    child.sent.push(message)
+    return true
+  }
   return child
 }
 
@@ -82,6 +87,65 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
   assert.equal(spawnCalls.length, 1, 'an admitted auto-chat start creates exactly one child process')
   assert.equal((await policy.status()).runRecordId, String(started.runRecordId), 'policy state must use the worker run record id')
   await service.stop({ workerId: 'geekAutoStartWithBossMain' })
+}
+
+{
+  const spawnCalls = []
+  const child = fakeChild(98)
+  const received = []
+  const service = createTaskService({
+    spawnProcess: (...args) => { spawnCalls.push(args); return child },
+    workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+    workerControl: {
+      handle: async (message) => {
+        received.push(message)
+        return { state: 'RUNNING' }
+      }
+    }
+  })
+
+  const started = await service.start({ workerId: 'geekAutoStartWithBossMain' })
+  assert.deepEqual(spawnCalls[0][2].stdio, ['ignore', 'pipe', 'pipe', 'ipc'], 'auto-chat workers must receive a private IPC fd')
+  child.emit('message', {
+    ggrWorkerControl: 1,
+    requestId: 'state-1',
+    type: 'agent.state',
+    data: {},
+    workerId: 'spoofed-worker',
+    runRecordId: 'spoofed-run'
+  })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(received, [{ workerId: 'geekAutoStartWithBossMain', runRecordId: started.runRecordId, type: 'agent.state', data: {} }], 'worker identity must be derived from its child record')
+  assert.deepEqual(child.sent, [{ ggrWorkerControl: 1, requestId: 'state-1', ok: true, data: { state: 'RUNNING' } }], 'valid IPC requests must receive correlated responses')
+  child.emit('message', { ggrWorkerControl: 1, requestId: 'bad', type: 'not.allowed', data: {} })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(child.sent.length, 1, 'invalid IPC messages must be ignored')
+  await service.stop({ workerId: 'geekAutoStartWithBossMain' })
+}
+
+{
+  const events = []
+  const child = fakeChild(97)
+  let service
+  const workerControl = {
+    handle: async ({ type, workerId }) => {
+      if (type === 'risk.detected') await service.stop({ workerId, policyStop: true })
+      return { paused: true }
+    }
+  }
+  service = createTaskService({
+    spawnProcess: () => child,
+    workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+    workerControl,
+    emit: (event, data) => events.push({ event, data })
+  })
+
+  await service.start({ workerId: 'geekAutoStartWithBossMain' })
+  child.emit('message', { ggrWorkerControl: 1, requestId: 'risk-1', type: 'risk.detected', data: { statusCode: 403 } })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(child.killSignals, ['SIGTERM'])
+  const exit = events.find(({ event }) => event === 'task.exited')
+  assert.equal(exit?.data.restartSuppressed, true, 'policy stops must be visible as intentional restart suppression')
 }
 
 {

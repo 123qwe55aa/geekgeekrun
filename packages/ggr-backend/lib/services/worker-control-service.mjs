@@ -1,0 +1,49 @@
+const CONTROL_TYPES = new Set([
+  'agent.state',
+  'browse.record',
+  'candidate.propose',
+  'grant.consume',
+  'chat.result',
+  'risk.detected'
+])
+
+function failure(code, message) {
+  return Object.assign(new Error(message), { code })
+}
+
+function assertMessage({ workerId, runRecordId, type, data } = {}) {
+  if (typeof workerId !== 'string' || !workerId) throw failure('INVALID_WORKER_CONTROL_CONTEXT', 'workerId is required')
+  if (runRecordId === undefined || runRecordId === null || runRecordId === '') throw failure('INVALID_WORKER_CONTROL_CONTEXT', 'runRecordId is required')
+  if (!CONTROL_TYPES.has(type)) throw failure('INVALID_WORKER_CONTROL_TYPE', `Unsupported worker control type: ${type}`)
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw failure('INVALID_WORKER_CONTROL_DATA', 'worker control data must be an object')
+}
+
+function derivedData(data, workerId, runRecordId) {
+  return { ...data, workerId, runRecordId }
+}
+
+export function createWorkerControlService({ policy, task } = {}) {
+  if (!policy || typeof policy !== 'object') throw new TypeError('policy is required')
+  if (!task || typeof task.stop !== 'function') throw new TypeError('task.stop is required')
+
+  async function handle(message = {}) {
+    const { workerId, runRecordId, type, data } = message
+    assertMessage(message)
+    const routedData = derivedData(data, workerId, runRecordId)
+
+    switch (type) {
+      case 'agent.state': return policy.status()
+      case 'browse.record': return policy.recordBrowse(routedData)
+      case 'candidate.propose': return policy.createAutoChatApproval(routedData)
+      case 'grant.consume': return policy.consumeGrant(routedData)
+      case 'chat.result': return policy.recordChatResult(routedData)
+      case 'risk.detected': {
+        const state = await policy.detectRisk(routedData)
+        await task.stop({ workerId, policyStop: true })
+        return state
+      }
+    }
+  }
+
+  return Object.freeze({ handle })
+}

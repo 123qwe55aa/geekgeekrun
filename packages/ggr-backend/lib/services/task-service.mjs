@@ -8,6 +8,8 @@ const DEFAULT_DIAGNOSTIC_LINE_BYTES = 4096
 const DEFAULT_DIAGNOSTIC_STREAM_BYTES = 64 * 1024
 const SENSITIVE_KEYS = 'apiKey|accessKey|token|password|secret|credential|webhook'
 const ALLOWED_WORKER_EVENTS = new Set(['task.progress', 'approval.required'])
+const WORKER_CONTROL_TYPES = new Set(['agent.state', 'browse.record', 'candidate.propose', 'grant.consume', 'chat.result', 'risk.detected'])
+const AUTO_CHAT_WORKER_ID = 'geekAutoStartWithBossMain'
 const SENSITIVE_ASSIGNMENT = new RegExp(`(?:["']?)(?:${SENSITIVE_KEYS})(?:["']?)\\s*[=:]\\s*`, 'gi')
 const SENSITIVE_KEY = new RegExp(SENSITIVE_KEYS, 'i')
 
@@ -169,6 +171,22 @@ function pushDiagnostic(record, stream, chunk, lineBytes, streamBytes, onLine, o
   appendCarry(state, content.slice(start), lineBytes)
 }
 
+function validWorkerControlMessage(message) {
+  return Boolean(message && typeof message === 'object' && !Array.isArray(message) &&
+    message.ggrWorkerControl === 1 &&
+    (typeof message.requestId === 'string' || typeof message.requestId === 'number') &&
+    WORKER_CONTROL_TYPES.has(message.type) &&
+    message.data && typeof message.data === 'object' && !Array.isArray(message.data))
+}
+
+function workerControlError(error) {
+  return {
+    code: typeof error?.code === 'string' ? error.code : 'WORKER_CONTROL_FAILED',
+    message: error instanceof Error ? error.message : 'worker control request failed',
+    ...(error?.data === undefined ? {} : { data: error.data })
+  }
+}
+
 export function createTaskService({
   spawnProcess = nodeSpawn,
   workerEntries,
@@ -181,14 +199,17 @@ export function createTaskService({
   scheduleRestart = setTimeout,
   clearScheduledRestart = clearTimeout,
   admitStart,
+  workerControl,
   exitHistoryFile
 }) {
   if (!workerEntries || typeof workerEntries !== 'object') throw new TypeError('workerEntries are required')
   if (!Number.isInteger(diagnosticLineBytes) || diagnosticLineBytes <= 0) throw new TypeError('diagnosticLineBytes must be a positive integer')
   if (!Number.isInteger(diagnosticStreamBytes) || diagnosticStreamBytes <= 0) throw new TypeError('diagnosticStreamBytes must be a positive integer')
   if (admitStart !== undefined && typeof admitStart !== 'function') throw new TypeError('admitStart must be a function')
+  if (workerControl !== undefined && (!workerControl || typeof workerControl.handle !== 'function')) throw new TypeError('workerControl.handle must be a function')
   const workers = new Map()
   const stoppedWorkers = new Set()
+  const policyStoppedWorkers = new Set()
   const terminalChildren = new WeakSet()
   const stopPromises = new Map()
   const startPromises = new Map()
@@ -238,7 +259,7 @@ export function createTaskService({
   function launch(workerId, restartCount = 0, options = { headless: false }, runRecordId = nextRunRecordId++, restartState = restartStates.get(workerId) ?? resetRestartState(workerId)) {
     const entry = assertWorker(workerId)
     const child = spawnProcess(process.execPath, [entry], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: workerId === AUTO_CHAT_WORKER_ID ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, GGR_HEADLESS: String(options.headless) }
     })
     const record = {
@@ -278,6 +299,17 @@ export function createTaskService({
     }
     child.stdout?.on?.('data', (chunk) => pushDiagnostic(record, 'stdout', chunk, diagnosticLineBytes, diagnosticStreamBytes, (line, truncated) => progress('stdout', line, truncated), (line) => structuredWorkerEvent(line, report)))
     child.stderr?.on?.('data', (chunk) => pushDiagnostic(record, 'stderr', chunk, diagnosticLineBytes, diagnosticStreamBytes, (line, truncated) => progress('stderr', line, truncated)))
+    if (workerId === AUTO_CHAT_WORKER_ID && workerControl) {
+      child.on?.('message', async (message) => {
+        if (!validWorkerControlMessage(message)) return
+        try {
+          const data = await workerControl.handle({ workerId: record.workerId, runRecordId: record.runRecordId, type: message.type, data: message.data })
+          child.send?.({ ggrWorkerControl: 1, requestId: message.requestId, ok: true, data })
+        } catch (error) {
+          child.send?.({ ggrWorkerControl: 1, requestId: message.requestId, ok: false, error: workerControlError(error) })
+        }
+      })
+    }
 
     const finalize = (code = null, signal = null, error = null) => {
       if (terminalChildren.has(child)) return
@@ -289,7 +321,7 @@ export function createTaskService({
       if (workers.get(workerId) === record) workers.delete(workerId)
       const restartEligible = !stoppedWorkers.has(workerId) && code !== 0
       let restarting = false
-      let restartSuppressed = false
+      let restartSuppressed = policyStoppedWorkers.has(workerId)
       let restartDelayMs
       if (restartEligible) {
         const timestamp = now()
@@ -413,6 +445,7 @@ export function createTaskService({
     if (starting) return starting
     const pending = (async () => {
       stoppedWorkers.delete(workerId)
+      policyStoppedWorkers.delete(workerId)
       const runRecordId = nextRunRecordId++
       if (admitStart) await admitStart({ workerId, runRecordId })
       return launch(workerId, 0, startOptions, runRecordId, resetRestartState(workerId))
@@ -425,9 +458,11 @@ export function createTaskService({
     }
   }
 
-  async function stop({ workerId } = {}) {
+  async function stop({ workerId, policyStop = false } = {}) {
     assertWorker(workerId)
+    if (typeof policyStop !== 'boolean') throw Object.assign(new Error('policyStop must be a boolean'), { code: 'INVALID_PARAMS' })
     stoppedWorkers.add(workerId)
+    if (policyStop) policyStoppedWorkers.add(workerId)
     const restartState = restartStates.get(workerId)
     if (restartState?.timer) {
       clearScheduledRestart(restartState.timer)

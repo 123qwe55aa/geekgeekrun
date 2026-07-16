@@ -64,17 +64,17 @@ try {
 
   const expired = await policy.createAutoChatApproval(candidate)
   advance(1_001)
-  await assert.rejects(policy.approve({ id: expired.id, actor: { client: 'ggr-cli', version: 'test' } }), (error) => error.code === 'APPROVAL_EXPIRED')
+  await assert.rejects(policy.approve({ id: expired.id, actor: { client: 'ggr-cli', clientVersion: 'test' } }), (error) => error.code === 'APPROVAL_EXPIRED')
   await assert.rejects(
     policy.consumeGrant({ grant: expired.grantForWorker, ...candidate }),
     (error) => error.code === 'APPROVAL_EXPIRED'
   )
 
   const approval = await policy.createAutoChatApproval(candidate)
-  await policy.approve({ id: approval.id, actor: { client: 'ggr-cli', version: 'test' } })
+  await policy.approve({ id: approval.id, actor: { client: 'ggr-cli', clientVersion: 'test' } })
   await assert.rejects(
     policy.consumeGrant({ grant: approval.grantForWorker, ...candidate, runRecordId: 100 }),
-    (error) => error.code === 'APPROVAL_CONTEXT_MISMATCH'
+    (error) => error.code === 'RUN_RECORD_MISMATCH'
   )
   await assert.rejects(
     policy.consumeGrant({ grant: approval.grantForWorker, ...candidate, workerId: 'other-worker' }),
@@ -91,18 +91,18 @@ try {
 
   const nextCandidate = { ...candidate, jobId: 'job-two', companyName: 'Beta Corp' }
   const nextApproval = await policy.createAutoChatApproval(nextCandidate)
-  await policy.approve({ id: nextApproval.id, actor: { client: 'ggr-cli', version: 'test' } })
+  await policy.approve({ id: nextApproval.id, actor: { client: 'ggr-cli', clientVersion: 'test' } })
   await policy.consumeGrant({ grant: nextApproval.grantForWorker, ...nextCandidate })
   await policy.recordChatResult({ ...nextCandidate, outcome: 'UNKNOWN' })
   const companyLimitApproval = await policy.createAutoChatApproval({ ...candidate, jobId: 'job-three' })
-  await policy.approve({ id: companyLimitApproval.id, actor: { client: 'ggr-cli', version: 'test' } })
+  await policy.approve({ id: companyLimitApproval.id, actor: { client: 'ggr-cli', clientVersion: 'test' } })
   await assert.rejects(
     policy.consumeGrant({ grant: companyLimitApproval.grantForWorker, ...candidate, jobId: 'job-three' }),
     (error) => error.code === 'COMPANY_COOLDOWN_ACTIVE'
   )
   const hourlyLimitCandidate = { ...candidate, jobId: 'job-four', companyName: 'Gamma Corp' }
   const hourlyLimitApproval = await policy.createAutoChatApproval(hourlyLimitCandidate)
-  await policy.approve({ id: hourlyLimitApproval.id, actor: { client: 'ggr-cli', version: 'test' } })
+  await policy.approve({ id: hourlyLimitApproval.id, actor: { client: 'ggr-cli', clientVersion: 'test' } })
   await assert.rejects(
     policy.consumeGrant({ grant: hourlyLimitApproval.grantForWorker, ...hourlyLimitCandidate }),
     (error) => error.code === 'CHAT_HOURLY_QUOTA_EXCEEDED'
@@ -110,12 +110,12 @@ try {
   advance(3_600_001)
   const thirdCandidate = { ...candidate, jobId: 'job-five', companyName: 'Delta Corp' }
   const thirdApproval = await policy.createAutoChatApproval(thirdCandidate)
-  await policy.approve({ id: thirdApproval.id, actor: { client: 'ggr-cli', version: 'test' } })
+  await policy.approve({ id: thirdApproval.id, actor: { client: 'ggr-cli', clientVersion: 'test' } })
   await policy.consumeGrant({ grant: thirdApproval.grantForWorker, ...thirdCandidate })
   await policy.recordChatResult({ ...thirdCandidate, outcome: 'UNKNOWN' })
   const dailyLimitCandidate = { ...candidate, jobId: 'job-six', companyName: 'Epsilon Corp' }
   const dailyLimitApproval = await policy.createAutoChatApproval(dailyLimitCandidate)
-  await policy.approve({ id: dailyLimitApproval.id, actor: { client: 'ggr-cli', version: 'test' } })
+  await policy.approve({ id: dailyLimitApproval.id, actor: { client: 'ggr-cli', clientVersion: 'test' } })
   await assert.rejects(
     policy.consumeGrant({ grant: dailyLimitApproval.grantForWorker, ...dailyLimitCandidate }),
     (error) => error.code === 'CHAT_DAILY_QUOTA_EXCEEDED'
@@ -126,6 +126,9 @@ try {
   await assert.rejects(policy.preflightStart({ runRecordId: 100 }), (error) => error.code === 'RISK_COOLDOWN_ACTIVE')
   await assert.rejects(policy.consumeGrant({ grant: 'bad', ...candidate }), (error) => error.code === 'PAUSED_RISK')
   advance(30_001)
+  const pausedRisk = await policy.status()
+  await assert.rejects(policy.preflightStart({ runRecordId: candidate.runRecordId }), (error) => error.code === 'PAUSED_RISK')
+  assert.deepEqual(await policy.status(), pausedRisk, 'preflight start must not clear an elapsed risk pause')
   await policy.resume()
   assert.equal((await policy.status()).status, 'IDLE')
 
@@ -142,6 +145,74 @@ try {
   await assert.rejects(invalidLoginPolicy.preflightStart({ runRecordId: 101 }), (error) => error.code === 'INVALID_LOGIN_PAUSED')
   await assert.rejects(invalidLoginPolicy.resume(), (error) => error.code === 'ACCOUNT_HEALTH_CHECK_FAILED')
   assert.equal(healthChecked.length, 1)
+
+  // A policy without an injected account-health adapter must fail closed.  A
+  // finished risk cooldown is not itself authorization to start another run.
+  await policy.detectRisk({ statusCode: 403, reason: 'Forbidden again' })
+  advance(30_001)
+  const defaultHealthPolicy = createSafetyPolicyService({ store, emit: () => {}, now: () => currentTime, randomBytes: (size) => Buffer.alloc(size, 3) })
+  await assert.rejects(defaultHealthPolicy.resume(), (error) => error.code === 'ACCOUNT_HEALTH_CHECK_FAILED')
+  await policy.resume()
+
+  // A grant is valid only within the exact durable run for which it was
+  // approved; pending/approved grants cannot authorize an idle or replaced run.
+  await policy.updateConfig({ chatPerHour: 10, chatPerDay: 10 })
+  const idleGrant = await policy.createAutoChatApproval({ ...candidate, jobId: 'job-idle-grant' })
+  await policy.approve({ id: idleGrant.id, actor: { client: 'ggr-cli', clientVersion: 'test' } })
+  await assert.rejects(
+    policy.consumeGrant({ grant: idleGrant.grantForWorker, ...candidate, jobId: 'job-idle-grant' }),
+    (error) => error.code === 'RUN_NOT_ACTIVE'
+  )
+  await policy.stopForQuota({ reason: 'test quota pause' })
+  await assert.rejects(
+    policy.consumeGrant({ grant: idleGrant.grantForWorker, ...candidate, jobId: 'job-idle-grant' }),
+    (error) => error.code === 'RUN_NOT_ACTIVE'
+  )
+  await policy.preflightStart({ runRecordId: candidate.runRecordId })
+  const stoppedRunGrant = await policy.createAutoChatApproval({ ...candidate, jobId: 'job-stopped-run' })
+  await policy.approve({ id: stoppedRunGrant.id, actor: { client: 'ggr-cli', clientVersion: 'test' } })
+  await policy.expireRun({ runRecordId: candidate.runRecordId })
+  await assert.rejects(
+    policy.consumeGrant({ grant: stoppedRunGrant.grantForWorker, ...candidate, jobId: 'job-stopped-run' }),
+    (error) => error.code === 'RUN_NOT_ACTIVE'
+  )
+  await policy.preflightStart({ runRecordId: candidate.runRecordId })
+  const replacedRunGrant = await policy.createAutoChatApproval({ ...candidate, jobId: 'job-replaced-run' })
+  await policy.approve({ id: replacedRunGrant.id, actor: { client: 'ggr-cli', clientVersion: 'test' } })
+  await policy.preflightStart({ runRecordId: 'replacement-run' })
+  await assert.rejects(
+    policy.consumeGrant({ grant: replacedRunGrant.grantForWorker, ...candidate, jobId: 'job-replaced-run' }),
+    (error) => error.code === 'RUN_RECORD_MISMATCH'
+  )
+
+  // The approval boundary takes only the trusted handshake identity shape.
+  const actorSecret = 'actor-api-key-never-persisted'
+  const untrustedActorApproval = await policy.createAutoChatApproval({ ...candidate, jobId: 'job-untrusted-actor', runRecordId: 'replacement-run' })
+  await assert.rejects(
+    policy.approve({ id: untrustedActorApproval.id, actor: { client: 'ggr-cli', clientVersion: 'test', apiKey: actorSecret } }),
+    (error) => error.code === 'INVALID_APPROVAL_ACTOR'
+  )
+  await assert.rejects(
+    policy.approve({ id: untrustedActorApproval.id, actor: { client: 'untrusted-client', clientVersion: 'test' } }),
+    (error) => error.code === 'INVALID_APPROVAL_ACTOR'
+  )
+  await assert.rejects(
+    policy.approve({ id: untrustedActorApproval.id, actor: { client: 'ggr-cli', version: 'test' } }),
+    (error) => error.code === 'INVALID_APPROVAL_ACTOR'
+  )
+  const normalizedActorApproval = await policy.createAutoChatApproval({ ...candidate, jobId: 'job-normalized-actor', runRecordId: 'replacement-run' })
+  const normalizedActor = { client: 'electron', clientVersion: '1.2.3' }
+  await assert.rejects(
+    policy.approve({ id: normalizedActorApproval.id, actor: { ...normalizedActor, token: actorSecret } }),
+    (error) => error.code === 'INVALID_APPROVAL_ACTOR'
+  )
+  const approvedByNormalizedActor = await policy.approve({ id: normalizedActorApproval.id, actor: normalizedActor })
+  assert.equal(approvedByNormalizedActor.reviewerId, 'electron@1.2.3')
+  const rawApprovalRows = await database.query("SELECT reviewer_id FROM ggr_approval_request WHERE id = ? OR id = ?", [untrustedActorApproval.id, normalizedActorApproval.id])
+  assert(!JSON.stringify(rawApprovalRows).includes(actorSecret), 'actor secrets must not survive approval rows')
+  assert(!JSON.stringify(emitted).includes(actorSecret), 'actor secrets must not survive emitted event data')
+  const approvalEvent = emitted.findLast((event) => event.type === 'approval.approved')
+  assert.deepEqual(approvalEvent.payload.actor, normalizedActor)
 
   assert(emitted.some((event) => event.type === 'approval.required'))
   assert(emitted.some((event) => event.type === 'approval.approved'))

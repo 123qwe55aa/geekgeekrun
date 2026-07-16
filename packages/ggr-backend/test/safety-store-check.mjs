@@ -69,7 +69,7 @@ try {
     state: { safe: 'shown', note: `State note: ${freeformSecret}` }
   }))
   const updatedApproval = await store.updateApproval('approval-redacted', {
-    reviewerId: 'reviewer-one',
+    reviewerId: `token=${rawSecret}`,
     reviewerNote: `Updated approval note: ${freeformSecret}`,
     reviewedAt: now
   })
@@ -84,7 +84,7 @@ try {
     details: { safe: 'shown', authorization: `Bearer ${rawSecret}` }
   }))
   const storedValues = await database.query(
-    "SELECT payload_json AS value FROM ggr_safety_event WHERE type = 'risk.detected' UNION ALL SELECT context_json AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT reviewer_note AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT state_json AS value FROM ggr_safety_state WHERE scope_key = 'redacted-state' UNION ALL SELECT reason AS value FROM ggr_company_cooldown WHERE company_key = 'company-redacted' UNION ALL SELECT details_json AS value FROM ggr_action_ledger WHERE id = ?",
+    "SELECT payload_json AS value FROM ggr_safety_event WHERE type = 'risk.detected' UNION ALL SELECT context_json AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT reviewer_id AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT reviewer_note AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT state_json AS value FROM ggr_safety_state WHERE scope_key = 'redacted-state' UNION ALL SELECT reason AS value FROM ggr_company_cooldown WHERE company_key = 'company-redacted' UNION ALL SELECT details_json AS value FROM ggr_action_ledger WHERE id = ?",
     [ledger.id]
   )
   const storedEvent = (await store.listEvents({ type: 'risk.detected' })).at(-1)

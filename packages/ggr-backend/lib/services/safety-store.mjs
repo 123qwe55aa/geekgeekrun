@@ -1,6 +1,7 @@
 const REDACTED_SECRET = '[redacted]'
 const SENSITIVE_FIELD_PATTERN = /(api[-_]?key|access[-_]?key|private[-_]?key|token|cookie|password|secret|credential|authorization|auth|webhook)/i
 const SENSITIVE_ASSIGNMENT_PATTERN = /((?:api[-_]?key|access[-_]?key|private[-_]?key|token|cookie|password|secret|credential|authorization|webhook)\s*[=:]\s*)(?:\[redacted\]|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|Bearer\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)|[^\s,;}\]]+)/gi
+const NORMALIZED_REVIEWER_ID_PATTERN = /^(?:electron|ggr-cli|ggr-mcp)@[A-Za-z0-9._+-]+$/
 
 function toIso(value) {
   return (value instanceof Date ? value : new Date(value)).toISOString()
@@ -18,6 +19,11 @@ function redactSecrets(value, key = '') {
     Object.entries(value).map(([name, item]) => [name, redactSecrets(item, name)])
   )
   return value
+}
+
+function redactReviewerId(value) {
+  if (value == null) return value
+  return typeof value === 'string' && NORMALIZED_REVIEWER_ID_PATTERN.test(value) ? value : REDACTED_SECRET
 }
 
 function stringifySafeJson(value) {
@@ -50,7 +56,7 @@ function mapApproval(row) {
     context: parseJson(row.context_json),
     contextHash: row.context_hash,
     requestedBy: row.requested_by,
-    reviewerId: row.reviewer_id,
+    reviewerId: redactReviewerId(row.reviewer_id),
     reviewerNote: redactSecrets(row.reviewer_note),
     reviewedAt: row.reviewed_at,
     expiresAt: row.expires_at,
@@ -159,13 +165,14 @@ export function createSafetyStore({ getDataSource, now = () => new Date() } = {}
         const reviewedAtIso = reviewedAt == null ? null : toIso(reviewedAt)
         const expiresAtIso = toIso(expiresAt)
         const safeContext = redactSecrets(context)
+        const safeReviewerId = redactReviewerId(reviewerId)
         const safeReviewerNote = redactSecrets(reviewerNote)
         await manager.query(
           `INSERT INTO ggr_approval_request (id, kind, status, context_json, context_hash, requested_by, reviewer_id, reviewer_note, reviewed_at, expires_at, grant_hash, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [id, kind, status, stringifySafeJson(context), contextHash, requestedBy, reviewerId, safeReviewerNote, reviewedAtIso, expiresAtIso, grantHash, createdAtIso, updatedAtIso]
+          [id, kind, status, stringifySafeJson(context), contextHash, requestedBy, safeReviewerId, safeReviewerNote, reviewedAtIso, expiresAtIso, grantHash, createdAtIso, updatedAtIso]
         )
-        return { id, kind, status, context: safeContext, contextHash, requestedBy, reviewerId, reviewerNote: safeReviewerNote, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, grantHash, createdAt: createdAtIso, updatedAt: updatedAtIso }
+        return { id, kind, status, context: safeContext, contextHash, requestedBy, reviewerId: safeReviewerId, reviewerNote: safeReviewerNote, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, grantHash, createdAt: createdAtIso, updatedAt: updatedAtIso }
       },
       async updateApproval(id, patch) {
         const current = await getApprovalWith(manager, id)
@@ -180,14 +187,15 @@ export function createSafetyStore({ getDataSource, now = () => new Date() } = {}
         const reviewedAtIso = next.reviewedAt == null ? null : toIso(next.reviewedAt)
         const expiresAtIso = toIso(next.expiresAt)
         const safeContext = redactSecrets(next.context)
+        const safeReviewerId = redactReviewerId(next.reviewerId)
         const safeReviewerNote = redactSecrets(next.reviewerNote)
         await manager.query(
           `UPDATE ggr_approval_request
            SET kind = ?, status = ?, context_json = ?, context_hash = ?, requested_by = ?, reviewer_id = ?, reviewer_note = ?, reviewed_at = ?, expires_at = ?, grant_hash = ?, updated_at = ?
            WHERE id = ?`,
-          [next.kind, next.status, stringifySafeJson(next.context), next.contextHash, next.requestedBy, next.reviewerId, safeReviewerNote, reviewedAtIso, expiresAtIso, next.grantHash, updatedAtIso, id]
+          [next.kind, next.status, stringifySafeJson(next.context), next.contextHash, next.requestedBy, safeReviewerId, safeReviewerNote, reviewedAtIso, expiresAtIso, next.grantHash, updatedAtIso, id]
         )
-        return { ...next, context: safeContext, reviewerNote: safeReviewerNote, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, updatedAt: updatedAtIso }
+        return { ...next, context: safeContext, reviewerId: safeReviewerId, reviewerNote: safeReviewerNote, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, updatedAt: updatedAtIso }
       },
       async updateApprovalIfStatus(id, expectedStatus, patch) {
         const current = await getApprovalWith(manager, id)

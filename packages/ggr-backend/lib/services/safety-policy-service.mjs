@@ -14,6 +14,7 @@ export const DEFAULT_SAFETY_CONFIG = Object.freeze({
 
 const APPROVAL_KIND = 'AUTO_CHAT'
 const CHAT_RESERVATION = 'CHAT_RESERVED'
+const TRUSTED_APPROVAL_CLIENTS = new Set(['electron', 'ggr-cli', 'ggr-mcp'])
 
 function failure(code, message, data = {}) {
   return Object.assign(new Error(message), { code, data })
@@ -84,6 +85,27 @@ function normalizeCandidate(candidate = {}) {
   return Object.freeze({ context, contextHash: hash(stableJson(context)) })
 }
 
+function normalizeApprovalActor(actor) {
+  if (!actor || typeof actor !== 'object' || Array.isArray(actor)) {
+    throw failure('INVALID_APPROVAL_ACTOR', 'approval actor must be a trusted client identity')
+  }
+  const keys = Object.keys(actor)
+  if (keys.length !== 2 || !keys.every((key) => key === 'client' || key === 'clientVersion')) {
+    throw failure('INVALID_APPROVAL_ACTOR', 'approval actor must contain only client and clientVersion')
+  }
+  if (!TRUSTED_APPROVAL_CLIENTS.has(actor.client)) {
+    throw failure('INVALID_APPROVAL_ACTOR', 'approval actor client is not trusted')
+  }
+  if (typeof actor.clientVersion !== 'string' || !actor.clientVersion.trim()) {
+    throw failure('INVALID_APPROVAL_ACTOR', 'approval actor clientVersion is required')
+  }
+  return Object.freeze({ client: actor.client, clientVersion: actor.clientVersion.trim() })
+}
+
+function reviewerIdFor(actor) {
+  return `${actor.client}@${actor.clientVersion}`
+}
+
 function normalizeState(record) {
   if (!record?.state || typeof record.state !== 'object') {
     return { scopeKey: AUTO_CHAT_SCOPE, status: 'IDLE', pausedUntil: null, reason: null, runRecordId: null }
@@ -106,7 +128,7 @@ function grantIdFrom(grant) {
 export function createSafetyPolicyService({
   store,
   emit = () => {},
-  accountHealthCheck = async () => true,
+  accountHealthCheck = async () => false,
   now = () => new Date(),
   randomBytes = nodeRandomBytes,
   config = {}
@@ -151,11 +173,13 @@ export function createSafetyPolicyService({
     const result = await store.transaction(async (tx) => {
       const current = normalizeState(await tx.readState(AUTO_CHAT_SCOPE))
       if (current.status === 'PAUSED_INVALID_LOGIN') throw failure('INVALID_LOGIN_PAUSED', 'auto-chat is paused until login health is restored')
-      if (current.status === 'PAUSED_RISK' && current.pausedUntil && new Date(current.pausedUntil) > at) {
-        throw failure('RISK_COOLDOWN_ACTIVE', 'auto-chat risk cooldown is active', { pausedUntil: current.pausedUntil })
+      if (current.status === 'PAUSED_RISK') {
+        if (current.pausedUntil && new Date(current.pausedUntil) > at) {
+          throw failure('RISK_COOLDOWN_ACTIVE', 'auto-chat risk cooldown is active', { pausedUntil: current.pausedUntil })
+        }
+        throw failure('PAUSED_RISK', 'auto-chat risk pause requires a health-gated manual resume', { pausedUntil: current.pausedUntil })
       }
       const events = []
-      if (current.status === 'PAUSED_RISK') events.push({ type: 'risk.cleared', payload: { reason: 'cooldown elapsed' } })
       const next = { scopeKey: AUTO_CHAT_SCOPE, status: 'RUNNING', pausedUntil: null, reason: null, runRecordId: String(runRecordId) }
       events.push(await writeState(tx, next, at))
       return { state: next, events }
@@ -232,6 +256,7 @@ export function createSafetyPolicyService({
 
   async function approve({ id, actor = {} } = {}) {
     if (!id) throw failure('INVALID_APPROVAL_ID', 'approval id is required')
+    const normalizedActor = normalizeApprovalActor(actor)
     const at = timestamp()
     const result = await store.transaction(async (tx) => {
       const approval = await tx.getApproval(id)
@@ -241,9 +266,9 @@ export function createSafetyPolicyService({
         return { error: failure('APPROVAL_EXPIRED', 'approval has expired'), events: [] }
       }
       if (approval.status !== 'PENDING') throw failure(`APPROVAL_${approval.status}`, `approval is ${approval.status.toLowerCase()}`)
-      const updated = await tx.updateApprovalIfStatus(id, 'PENDING', { status: 'APPROVED', reviewerId: JSON.stringify(actor), reviewedAt: at, updatedAt: at })
+      const updated = await tx.updateApprovalIfStatus(id, 'PENDING', { status: 'APPROVED', reviewerId: reviewerIdFor(normalizedActor), reviewedAt: at, updatedAt: at })
       if (!updated) throw failure('APPROVAL_ALREADY_REVIEWED', 'approval was already reviewed')
-      return { approval: updated, events: [{ type: 'approval.approved', payload: { id, actor } }] }
+      return { approval: updated, events: [{ type: 'approval.approved', payload: { id, actor: normalizedActor } }] }
     })
     emitAfterCommit(result.events)
     if (result.error) throw result.error
@@ -252,6 +277,7 @@ export function createSafetyPolicyService({
 
   async function reject({ id, actor = {}, reason = null } = {}) {
     if (!id) throw failure('INVALID_APPROVAL_ID', 'approval id is required')
+    const normalizedActor = normalizeApprovalActor(actor)
     const at = timestamp()
     const result = await store.transaction(async (tx) => {
       const approval = await tx.getApproval(id)
@@ -261,7 +287,7 @@ export function createSafetyPolicyService({
         return { error: failure('APPROVAL_EXPIRED', 'approval has expired'), events: [] }
       }
       if (approval.status !== 'PENDING') throw failure(`APPROVAL_${approval.status}`, `approval is ${approval.status.toLowerCase()}`)
-      const updated = await tx.updateApprovalIfStatus(id, 'PENDING', { status: 'REJECTED', reviewerId: JSON.stringify(actor), reviewerNote: reason, reviewedAt: at, updatedAt: at })
+      const updated = await tx.updateApprovalIfStatus(id, 'PENDING', { status: 'REJECTED', reviewerId: reviewerIdFor(normalizedActor), reviewerNote: reason, reviewedAt: at, updatedAt: at })
       if (!updated) throw failure('APPROVAL_ALREADY_REVIEWED', 'approval was already reviewed')
       pendingWorkerGrants.delete(id)
       return { approval: updated, events: [] }
@@ -279,6 +305,8 @@ export function createSafetyPolicyService({
       const current = normalizeState(await tx.readState(AUTO_CHAT_SCOPE))
       if (current.status === 'PAUSED_RISK') throw failure('PAUSED_RISK', 'auto-chat is paused for risk')
       if (current.status === 'PAUSED_INVALID_LOGIN') throw failure('INVALID_LOGIN_PAUSED', 'auto-chat is paused until login health is restored')
+      if (current.status !== 'RUNNING') throw failure('RUN_NOT_ACTIVE', 'auto-chat grant consumption requires an active run')
+      if (current.runRecordId !== context.runRecordId) throw failure('RUN_RECORD_MISMATCH', 'grant does not match the active run record')
       if (!id) throw failure('INVALID_APPROVAL_GRANT', 'grant is invalid')
       const approval = await tx.getApproval(id)
       if (!approval) throw failure('APPROVAL_NOT_FOUND', 'approval was not found')

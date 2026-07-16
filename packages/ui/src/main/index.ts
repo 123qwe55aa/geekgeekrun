@@ -1,7 +1,7 @@
 import overrideConsole from './utils/overrideConsole'
 import { app, dialog } from 'electron'
 import { openSettingWindow } from './flow/OPEN_SETTING_WINDOW/index'
-import { ensureBackendReady, ensureSupervisorInstalled } from './backend/bootstrap'
+import { ensureBackendReady } from './backend/bootstrap'
 
 const isUiDev = process.env.NODE_ENV === 'development'
 const enableLogToFile = process.env.GEEKGEEKRUN_ENABLE_LOG_TO_FILE === String(1)
@@ -22,7 +22,6 @@ globalThis.GEEKGEEKRUN_PROCESS_ROLE = 'ui'
 void (async () => {
   while (true) {
     try {
-      await ensureSupervisorInstalled()
       await ensureBackendReady()
       openSettingWindow({ headless: process.env.GGR_HEADLESS === 'true' })
       return
@@ -34,7 +33,7 @@ void (async () => {
         defaultId: 0,
         cancelId: 1,
         message: 'The backend could not be started.',
-        detail: 'Retry after checking your network connection or backend release settings.'
+        detail: 'Install or start the separate GGR Runtime, then retry.'
       })
       if (response !== 0) {
         app.quit()

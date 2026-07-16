@@ -4,7 +4,7 @@ directories:
   buildResources: build
 icon: resources/icon.png
 files:
-  - '!resources/ggrd-bootstrap/**'
+  - '!resources/ggrd-*/**'
   - '!**/.codegraph/**'
   - '!dist*/**'
   - '!**/.vscode/*'
@@ -18,12 +18,6 @@ files:
   - '!node_modules/date-fns/esm/*'
   - '!node_modules/highlight.js/{styles,scss}/*'
   - '!node_modules/typeorm/browser/*'
-asarUnpack:
-  - 'resources/**'
-  - '!resources/ggrd-bootstrap/**'
-extraResources:
-  - from: resources/ggrd-bootstrap
-    to: ggrd-bootstrap
 win:
   executableName: geekgeekrun
 nsis:

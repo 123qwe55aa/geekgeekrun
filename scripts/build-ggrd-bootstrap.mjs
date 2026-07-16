@@ -8,7 +8,9 @@ import { createHash } from 'node:crypto'
 
 const execFile = promisify(execFileCallback)
 const repository = fileURLToPath(new URL('..', import.meta.url))
-const output = path.join(repository, 'packages', 'ui', 'resources', 'ggrd-bootstrap')
+const output = process.env.GGRD_BOOTSTRAP_OUTPUT
+  ? path.resolve(process.env.GGRD_BOOTSTRAP_OUTPUT)
+  : path.join(repository, 'packages', 'ui', 'resources', 'ggrd-bootstrap')
 const ggrd = path.join(repository, 'packages', 'ggrd')
 const protocol = path.join(repository, 'packages', 'ggr-protocol')
 const platform = process.platform === 'darwin' ? 'darwin' : process.platform === 'linux' ? 'linux' : null

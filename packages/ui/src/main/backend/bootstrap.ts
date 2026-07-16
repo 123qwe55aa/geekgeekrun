@@ -1,54 +1,7 @@
-import fs from 'node:fs/promises'
-import path from 'node:path'
-import { installLaunchdSupervisor } from '@geekgeekrun/ggrd/lib/launchd.mjs'
-import { app } from 'electron'
 import { connectBackend } from './client'
-import { getSupervisorClient, getSupervisorSocketPath, installBackendUpdate } from './supervisor-client'
-
-const BOOTSTRAP_VERSION = '1.0.1'
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 const isDevelopment = () => process.env.NODE_ENV === 'development'
-
-function configuredHttpsProxy(): string | undefined {
-  const value = process.env.GGR_HTTPS_PROXY
-  if (!value) return undefined
-  const proxy = new URL(value)
-  if (proxy.protocol !== 'https:') throw new Error('Configured backend proxy must use HTTPS')
-  return proxy.href
-}
-
-function packagedBootstrapDirectory(): string {
-  return path.join(process.resourcesPath, 'ggrd-bootstrap')
-}
-
-export async function ensureSupervisorInstalled(): Promise<void> {
-  if (isDevelopment()) return
-  const bootstrapSource = packagedBootstrapDirectory()
-  const server = path.join(bootstrapSource, 'server.mjs')
-  await fs.access(server)
-  await installLaunchdSupervisor({
-    bootstrapSource,
-    bootstrapVersion: BOOTSTRAP_VERSION,
-    httpsProxy: configuredHttpsProxy(),
-    electronVersion: app.getVersion()
-  })
-}
-
-async function waitForSupervisor() {
-  let lastError: unknown
-  for (let attempt = 0; attempt < 20; attempt++) {
-    try {
-      const supervisor = getSupervisorClient()
-      if (!supervisor.connected) await supervisor.connect()
-      return supervisor
-    } catch (error) {
-      lastError = error
-      await sleep(250)
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error('Supervisor did not become ready')
-}
 
 async function waitForBackend() {
   let lastError: unknown
@@ -72,10 +25,9 @@ export async function ensureBackendReady(): Promise<void> {
       throw new Error(`Development backend is unavailable. Run pnpm dev:backend and set GGR_BACKEND_SOCKET if needed. ${error instanceof Error ? error.message : ''}`)
     }
   }
-  const supervisor = await waitForSupervisor()
-  const status = await supervisor.request('supervisor.status') as { current?: string | null }
-  if (!status.current) await installBackendUpdate()
-  await waitForBackend()
+  try {
+    await waitForBackend()
+  } catch (error) {
+    throw new Error(`GGR Runtime is unavailable. Install or start the separate GGR Runtime, then retry. ${error instanceof Error ? error.message : ''}`)
+  }
 }
-
-export { getSupervisorSocketPath }

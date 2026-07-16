@@ -17,7 +17,7 @@ assert.doesNotMatch(electronViteConfigSource, /externalizeMainBareImportsPlugin/
 assert.match(electronViteConfigSource, /externalizeDepsPlugin\(\)/, 'main build must retain normal production-dependency externalization')
 
 const backendBootstrapSource = await read('packages/ui/src/main/backend/bootstrap.ts')
-assert.match(backendBootstrapSource, /const BOOTSTRAP_VERSION = '1\.0\.1'/, 'Electron must install a new supervisor bootstrap version when its runtime dependency closure changes')
+assert.doesNotMatch(backendBootstrapSource, /BOOTSTRAP_VERSION|installLaunchdSupervisor|installBackendUpdate/, 'Electron must only connect to the separately released Runtime')
 
 const traySource = await read('packages/ui/src/main/features/tray.ts')
 assert.match(traySource, /import\s+\{[^}]*Tray[^}]*\}\s+from ['"]electron['"]/, 'tray feature must import Electron Tray')

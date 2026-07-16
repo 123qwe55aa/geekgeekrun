@@ -113,7 +113,7 @@ export function createLaunchAgentPlist({
 }
 
 export async function runLaunchctl(command, args) {
-  if (!['bootstrap', 'bootout', 'kickstart'].includes(command) || !Array.isArray(args) || args.some((argument) => typeof argument !== 'string')) {
+  if (!['bootstrap', 'bootout', 'kickstart', 'load'].includes(command) || !Array.isArray(args) || args.some((argument) => typeof argument !== 'string')) {
     throw new TypeError('launchctl must receive an allowlisted command and argument array')
   }
   await new Promise((resolve, reject) => {
@@ -132,6 +132,10 @@ export async function runLaunchctl(command, args) {
 
 function alreadyLoaded(error) {
   return error?.code === 'LAUNCHCTL_ALREADY_LOADED'
+}
+
+function bootstrapInputOutputError(error) {
+  return error?.code === 'LAUNCHCTL_FAILED' && /bootstrap failed:\s*5:\s*input\/output error/i.test(error.stderr ?? '')
 }
 
 export async function installLaunchdSupervisor({
@@ -161,11 +165,16 @@ export async function installLaunchdSupervisor({
   try {
     await invokeLaunchctl('bootstrap', [`gui/${uid}`, plistPath])
   } catch (error) {
-    if (!alreadyLoaded(error)) throw error
-    const service = `gui/${uid}/${SUPERVISOR_LABEL}`
-    await invokeLaunchctl('bootout', [service])
-    await invokeLaunchctl('bootstrap', [`gui/${uid}`, plistPath])
-    await invokeLaunchctl('kickstart', ['-k', service])
+    if (alreadyLoaded(error)) {
+      const service = `gui/${uid}/${SUPERVISOR_LABEL}`
+      await invokeLaunchctl('bootout', [service])
+      await invokeLaunchctl('bootstrap', [`gui/${uid}`, plistPath])
+      await invokeLaunchctl('kickstart', ['-k', service])
+    } else if (bootstrapInputOutputError(error)) {
+      await invokeLaunchctl('load', [plistPath])
+    } else {
+      throw error
+    }
   }
   return Object.freeze({ label: SUPERVISOR_LABEL, bootstrapDirectory })
 }

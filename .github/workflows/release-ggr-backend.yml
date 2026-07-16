@@ -124,6 +124,22 @@ jobs:
           const digest = createHash('sha256').update(await fs.readFile(`${root}/${artifact.filename}`)).digest('hex')
           if (digest !== artifact.sha256) throw new Error('timestamped release artifact digest does not match its manifest')
           NODE
+      - name: Build signed standalone Runtime app
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ matrix.arch }}
+          GGR_UPDATE_PRIVATE_KEY: ${{ secrets.GGR_UPDATE_PRIVATE_KEY }}
+        run: |
+          root="dist/ggr-backend/$VERSION"
+          artifact="$root/ggr-backend-$VERSION-darwin-$ARCH.tar.gz"
+          node scripts/sign-ggr-backend-manifest.mjs --manifest "$root/manifest.json" --signature "$root/manifest.sig"
+          node scripts/build-ggr-runtime-release.mjs \
+            --output-dir "dist/ggr-runtime/$VERSION/$ARCH/release" \
+            --backend-artifact "$artifact" --manifest "$root/manifest.json" --signature "$root/manifest.sig"
+          node scripts/build-ggr-runtime-app.mjs \
+            --release-dir "dist/ggr-runtime/$VERSION/$ARCH/release" \
+            --output-dir "dist/ggr-runtime/$VERSION/$ARCH/app"
+          ditto -c -k --keepParent "dist/ggr-runtime/$VERSION/$ARCH/app/GGR Runtime.app" "dist/ggr-runtime/$VERSION/GGR-Runtime-$VERSION-darwin-$ARCH.app.zip"
       - name: Notarize signed artifact
         env:
           GGR_NOTARY_API_KEY: ${{ secrets.GGR_NOTARY_API_KEY }}
@@ -142,7 +158,9 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ggr-backend-${{ matrix.arch }}
-          path: dist/ggr-backend/${{ inputs.version }}/
+          path: |
+            dist/ggr-backend/${{ inputs.version }}/
+            dist/ggr-runtime/${{ inputs.version }}/GGR-Runtime-${{ inputs.version }}-darwin-${{ matrix.arch }}.app.zip
           if-no-files-found: error
 
   release:
@@ -162,6 +180,7 @@ jobs:
         run: |
           mkdir release
           find downloaded -name '*.tar.gz' -exec cp {} release/ \;
+          find downloaded -name '*.app.zip' -exec cp {} release/ \;
           node --input-type=module <<'NODE'
           import fs from 'node:fs/promises'
           import path from 'node:path'
@@ -186,7 +205,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh release create "ggr-backend-v${{ inputs.version }}"
-          release/ggr-backend-*.tar.gz release/manifest.json release/manifest.sig
+          release/ggr-backend-*.tar.gz release/GGR-Runtime-*.app.zip release/manifest.json release/manifest.sig
           --target "${{ github.sha }}" --title "GGR Backend ${{ inputs.version }}"
           --generate-notes
       - name: Publish the signed selected-channel manifest

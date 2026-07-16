@@ -72,6 +72,16 @@ function mapLedger(row) {
   }
 }
 
+function mapCooldown(row) {
+  return row && {
+    companyKey: row.company_key,
+    reason: redactSecrets(row.reason),
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
 function filtersToWhere(filters, allowed) {
   const clauses = []
   const values = []
@@ -87,6 +97,7 @@ function filtersToWhere(filters, allowed) {
 export function createSafetyStore({ getDataSource, now = () => new Date() } = {}) {
   if (typeof getDataSource !== 'function') throw new TypeError('getDataSource is required')
   let dataSourcePromise = null
+  let transactionTail = Promise.resolve()
 
   async function dataSource() {
     dataSourcePromise ??= Promise.resolve().then(getDataSource)
@@ -95,6 +106,23 @@ export function createSafetyStore({ getDataSource, now = () => new Date() } = {}
 
   function createTransactionStore(manager) {
     return Object.freeze({
+      async readState(scope) {
+        const scopeKey = typeof scope === 'string' ? scope : scope?.scopeKey
+        const [row] = await manager.query('SELECT * FROM ggr_safety_state WHERE scope_key = ?', [scopeKey])
+        return mapState(row)
+      },
+      async getApproval(id) {
+        return getApprovalWith(manager, id)
+      },
+      async listLedger(filters = {}) {
+        const { where, values } = filtersToWhere(filters, { scopeKey: 'scope_key', actionType: 'action_type', status: 'status' })
+        const rows = await manager.query(`SELECT * FROM ggr_action_ledger${where} ORDER BY created_at ASC, id ASC`, values)
+        return rows.map(mapLedger)
+      },
+      async getCompanyCooldown(companyKey) {
+        const [row] = await manager.query('SELECT * FROM ggr_company_cooldown WHERE company_key = ?', [companyKey])
+        return mapCooldown(row)
+      },
       async insertEvent({ scopeKey, type, payload = {}, createdAt = now() }) {
         const createdAtIso = toIso(createdAt)
         const safePayload = redactSecrets(payload)
@@ -161,6 +189,11 @@ export function createSafetyStore({ getDataSource, now = () => new Date() } = {}
         )
         return { ...next, context: safeContext, reviewerNote: safeReviewerNote, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, updatedAt: updatedAtIso }
       },
+      async updateApprovalIfStatus(id, expectedStatus, patch) {
+        const current = await getApprovalWith(manager, id)
+        if (!current || current.status !== expectedStatus) return null
+        return this.updateApproval(id, patch)
+      },
       async setCompanyCooldown({ companyKey, reason, expiresAt, createdAt = now(), updatedAt = now() }) {
         const createdAtIso = toIso(createdAt)
         const updatedAtIso = toIso(updatedAt)
@@ -187,25 +220,33 @@ export function createSafetyStore({ getDataSource, now = () => new Date() } = {}
 
   async function transaction(callback) {
     if (typeof callback !== 'function') throw new TypeError('transaction callback is required')
-    const runner = (await dataSource()).createQueryRunner()
-    let begun = false
-    let result
-    let failure
+    const previous = transactionTail
+    let release
+    transactionTail = new Promise((resolve) => { release = resolve })
+    await previous
     try {
-      await runner.connect()
-      await runner.query('BEGIN IMMEDIATE')
-      begun = true
-      result = await callback(createTransactionStore(runner.manager))
-    } catch (error) {
-      failure = error
-    } finally {
-      if (begun) {
-        try { await runner.query(failure ? 'ROLLBACK' : 'COMMIT') } catch (finalizeError) { if (!failure) failure = finalizeError }
+      const runner = (await dataSource()).createQueryRunner()
+      let begun = false
+      let result
+      let failure
+      try {
+        await runner.connect()
+        await runner.query('BEGIN IMMEDIATE')
+        begun = true
+        result = await callback(createTransactionStore(runner.manager))
+      } catch (error) {
+        failure = error
+      } finally {
+        if (begun) {
+          try { await runner.query(failure ? 'ROLLBACK' : 'COMMIT') } catch (finalizeError) { if (!failure) failure = finalizeError }
+        }
+        try { await runner.release() } catch (releaseError) { if (!failure) failure = releaseError }
       }
-      try { await runner.release() } catch (releaseError) { if (!failure) failure = releaseError }
+      if (failure) throw failure
+      return result
+    } finally {
+      release()
     }
-    if (failure) throw failure
-    return result
   }
 
   async function readState(scope) {

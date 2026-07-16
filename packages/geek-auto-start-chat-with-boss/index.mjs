@@ -42,6 +42,7 @@ import cityGroupData from './cityGroup.mjs'
 import { hasIntersection } from '@geekgeekrun/utils/number.mjs';
 import { isJobAddressInExpectedArea } from './area-filter.mjs'
 import { applyCityFilter, resolveCityName } from './city-filter.mjs'
+import { requestPostDataOrEmpty } from './request-utils.mjs'
 import { findGreetCancelButton, findGreetSendButton, findSendButton, findStartChatButton, typeInChat, waitForText } from './dom-utils.mjs'
 
 const jobFilterConditionsMapByCode = {}
@@ -448,7 +449,7 @@ async function markJobAsNotSuitInRecommendPage (reasonCode) {
         /**
          * scene=4&code=41&feedbackReason=&securityId=
          */
-        const requestBody = response.request().postData()
+        const requestBody = requestPostDataOrEmpty(response.request())
         const chosenCode = Number(new URLSearchParams(requestBody).get('code'))
         if (chosenCode) {
           result.chosenReasonInUi = {

@@ -27,6 +27,10 @@ import {
   selectChatSafely
 } from '../lib/workers/read-no-reply/traversal.mjs'
 
+const traversalSource = await fs.readFile(new URL('../lib/workers/read-no-reply/traversal.mjs', import.meta.url), 'utf8')
+assert.match(traversalSource, /sendConversationMessage\(\{ page, text \}\)/, 'existing-chat replies must use the shared conversation adapter')
+assert.doesNotMatch(traversalSource, /page\.click\('\.chat-conversation \.message-controls \.chat-op/, 'existing-chat replies must not retain an independent send selector')
+
 function reporter() {
   const events = []
   return { events, emit: (event, data) => events.push({ event, data }) }
@@ -67,6 +71,7 @@ assert.equal(responseMatchesChat({ url: () => 'https://www.zhipin.com/wapi/zpcha
 assert.equal(responseMatchesChat({ url: () => 'https://www.zhipin.com/wapi/zpchat/geek/historyMsg?friendId=22&encryptJobId=7', request: () => ({ postData: () => '' }) }, { friendId: 22, encryptJobId: 7 }), true)
 assert.equal(responseMatchesChat({ url: () => 'https://www.zhipin.com/wapi/zpchat/geek/historyMsg', request: () => ({ postData: () => 'friendId=22&encryptJobId=7' }) }, { friendId: 22, encryptJobId: 7 }), true)
 assert.equal(selectedChatMatches({ friendId: 22, encryptJobId: 'job-1' }, { friendId: 22, encryptJobId: 'job-1' }, { encryptJobId: 'job-1' }), true)
+assert.equal(selectedChatMatches({ friendId: 22, encryptJobId: 'job-1' }, { friendId: 22, encryptJobId: 'job-1' }), true)
 assert.equal(selectedChatMatches({ friendId: 99, encryptJobId: 'old' }, { friendId: 22, encryptJobId: 'job-1' }, { encryptJobId: 'old' }), false)
 assert.equal(canSendSelfReminder({ conversation: { bothTalked: true }, history: [{ isSelf: true }], isJobClosed: false, isExpectedJob: true }), false)
 assert.equal(canSendSelfReminder({ conversation: { bothTalked: false }, history: [{ isSelf: true }], isJobClosed: true, isExpectedJob: true }), false)
@@ -88,6 +93,26 @@ assert.match(defaultPromptMap.rechat.content, /质量控制层/)
     }
   })
   assert.equal(stale, null)
+}
+
+{
+  const expressions = []
+  const current = await selectChatSafely({
+    target: { friendId: 22, encryptJobId: 'job-1' }, handle: { async click() {} }, timeout: 1, pause: async () => {},
+    page: {
+      waitForResponse: async () => ({ url: () => 'https://www.zhipin.com/wapi/zpchat/geek/historyMsg', request: () => ({ postData: () => 'friendId=22&encryptJobId=job-1' }) }),
+      evaluate: async (expression) => {
+        expressions.push(expression)
+        if (expression.includes('selectedFriend')) return { friendId: 22, encryptJobId: 'job-1' }
+        if (expression.includes('conversation$')) return null
+        return []
+      }
+    }
+  })
+  assert.equal(current.selected.friendId, 22)
+  assert.equal(current.conversation, null)
+  assert.deepEqual(current.history, [])
+  assert.equal(expressions.some((expression) => expression.includes('conversation$')), true)
 }
 
 {

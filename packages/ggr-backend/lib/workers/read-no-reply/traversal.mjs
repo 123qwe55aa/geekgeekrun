@@ -1,4 +1,5 @@
 import { sleep, sleepWithRandomDelay } from '../../../../utils/sleep.mjs'
+import { sendConversationMessage } from '@geekgeekrun/geek-auto-start-chat-with-boss/conversation-adapter.mjs'
 import { consumeApprovedAutoReply, handleLatestHrMessage } from './flow.mjs'
 
 export const MsgStatus = Object.freeze({ BOSS_MESSAGE_OR_SYSTEM_MESSAGE: 0, HAS_NOT_READ: 1, HAS_READ: 2, HAS_REVOKE: 3 })
@@ -52,13 +53,13 @@ export function responseMatchesChat(response, item) {
   return correlated.every(({ target, keys }) => keys.filter((key) => found.has(key)).every((key) => found.get(key).size === 1 && found.get(key).has(String(target))))
 }
 
-export function selectedChatMatches(selected, item, conversation) {
-  if (!selected || !conversation) return false
+export function selectedChatMatches(selected, item, conversation = null) {
+  if (!selected) return false
   const equal = (left, right) => String(left) === String(right)
   if (item.friendId !== undefined && !equal(selected.friendId, item.friendId)) return false
   if (item.encryptBossId && !equal(selected.encryptBossId, item.encryptBossId)) return false
   if (item.encryptJobId) {
-    const ids = [selected.encryptJobId, conversation.encryptJobId].filter(Boolean)
+    const ids = [selected.encryptJobId, conversation?.encryptJobId].filter(Boolean)
     if (!ids.length || ids.some((id) => !equal(id, item.encryptJobId))) return false
   }
   return true
@@ -111,10 +112,7 @@ export function shouldInspectChat(item, settings, now = Date.now()) {
 }
 
 async function sendText(page, text) {
-  const input = await page.$('.chat-conversation .message-controls .chat-input')
-  if (!input) throw new Error('chat input is unavailable')
-  await input.click(); await input.type(text, { delay: 50 })
-  await page.click('.chat-conversation .message-controls .chat-op .btn-send:not(.disabled)')
+  await sendConversationMessage({ page, text })
 }
 
 async function sendEmotion(page) {

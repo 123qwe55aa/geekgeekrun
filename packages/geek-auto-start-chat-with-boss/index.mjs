@@ -43,7 +43,8 @@ import { hasIntersection } from '@geekgeekrun/utils/number.mjs';
 import { isJobAddressInExpectedArea } from './area-filter.mjs'
 import { applyCityFilter, resolveCityName } from './city-filter.mjs'
 import { requestPostDataOrEmpty } from './request-utils.mjs'
-import { findGreetSendButton, findSendButton, findStartChatButton, typeInChat, waitForText } from './dom-utils.mjs'
+import { findGreetSendButton, findStartChatButton, waitForText } from './dom-utils.mjs'
+import { sendConversationMessage } from './conversation-adapter.mjs'
 
 const jobFilterConditionsMapByCode = {}
 Object.values(jobFilterConditions).forEach(arr => {
@@ -1612,11 +1613,7 @@ async function toRecommendPage (hooks) {
 
             const sendCustomOpening = async () => {
               if (!CUSTOM_OPENING.trim()) return
-              const typed = await typeInChat(page, CUSTOM_OPENING)
-              if (!typed) throw new Error('CHAT_INPUT_NOT_FOUND')
-              const sendBtn = await findSendButton(page)
-              if (!sendBtn) throw new Error('CHAT_SEND_BUTTON_NOT_FOUND')
-              await sendBtn.click()
+              await sendConversationMessage({ page, text: CUSTOM_OPENING })
               console.log('custom opening sent on chat page')
               await sleep(1000)
             }

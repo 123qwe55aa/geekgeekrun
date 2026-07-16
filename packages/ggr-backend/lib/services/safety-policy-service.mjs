@@ -15,6 +15,7 @@ export const DEFAULT_SAFETY_CONFIG = Object.freeze({
 const APPROVAL_KIND = 'AUTO_CHAT'
 const CHAT_RESERVATION = 'CHAT_RESERVED'
 const TRUSTED_APPROVAL_CLIENTS = new Set(['electron', 'ggr-cli', 'ggr-mcp'])
+const CLIENT_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/
 
 function failure(code, message, data = {}) {
   return Object.assign(new Error(message), { code, data })
@@ -96,10 +97,10 @@ function normalizeApprovalActor(actor) {
   if (!TRUSTED_APPROVAL_CLIENTS.has(actor.client)) {
     throw failure('INVALID_APPROVAL_ACTOR', 'approval actor client is not trusted')
   }
-  if (typeof actor.clientVersion !== 'string' || !actor.clientVersion.trim()) {
-    throw failure('INVALID_APPROVAL_ACTOR', 'approval actor clientVersion is required')
+  if (typeof actor.clientVersion !== 'string' || !CLIENT_VERSION_PATTERN.test(actor.clientVersion)) {
+    throw failure('INVALID_APPROVAL_ACTOR', 'approval actor clientVersion must be a semantic version')
   }
-  return Object.freeze({ client: actor.client, clientVersion: actor.clientVersion.trim() })
+  return Object.freeze({ client: actor.client, clientVersion: actor.clientVersion })
 }
 
 function reviewerIdFor(actor) {
@@ -199,6 +200,15 @@ export function createSafetyPolicyService({
       const current = normalizeState(await tx.readState(AUTO_CHAT_SCOPE))
       const events = []
       if (!healthy) {
+        if (current.status === 'PAUSED_RISK') {
+          const payload = {
+            reason: 'account health check failed while risk pause remains active',
+            pausedUntil: current.pausedUntil
+          }
+          await tx.insertEvent({ scopeKey: AUTO_CHAT_SCOPE, type: 'resume.health_check_failed', payload, createdAt: at })
+          events.push({ type: 'resume.health_check_failed', payload })
+          return { error: failure('ACCOUNT_HEALTH_CHECK_FAILED', 'account health check failed'), events }
+        }
         const next = { ...current, status: 'PAUSED_INVALID_LOGIN', pausedUntil: null, reason: 'account health check failed', runRecordId: null }
         events.push(await writeState(tx, next, at))
         return { error: failure('ACCOUNT_HEALTH_CHECK_FAILED', 'account health check failed'), events }

@@ -452,4 +452,65 @@ try {
   }
 }
 
+{
+  const workerControlHome = await fs.mkdtemp('/tmp/ggr-worker-control-server-')
+  const paths = createRuntimePaths(workerControlHome)
+  const children = []
+  const exited = []
+  const backend = await createBackendServer({
+    socketPath: paths.backendSocket,
+    version: '0.1.0',
+    runtimePaths: paths,
+    services: {
+      workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+      spawnProcess: () => {
+        const child = new EventEmitter()
+        child.pid = 900 + children.length
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        child.kill = (signal) => { queueMicrotask(() => child.emit('exit', null, signal)); return true }
+        children.push(child)
+        return child
+      },
+      stopTimeoutMs: 10,
+      browser: { close: async () => {} },
+      llm: { request: async () => ({}) }
+    }
+  })
+  try {
+    await backend.start()
+    const client = createGgrClient({ socketPath: paths.backendSocket, client: 'test', clientVersion: '1.0.0' })
+    await client.connect()
+    client.onEvent((event) => { if (event.event === 'task.exited') exited.push(event.data) })
+
+    await client.request('task.start', { workerId: 'geekAutoStartWithBossMain' })
+    const child = children[0]
+    const reply = new Promise((resolve) => { child.send = resolve })
+    child.emit('message', {
+      ggrWorkerControl: 1,
+      requestId: 'risk-1',
+      type: 'risk.detected',
+      data: { statusCode: 403, reason: 'Forbidden' }
+    })
+    const response = await Promise.race([
+      reply,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('server did not route worker risk IPC')), 100))
+    ])
+
+    assert.deepEqual(response, {
+      ggrWorkerControl: 1,
+      requestId: 'risk-1',
+      ok: true,
+      data: await client.request('safety.status')
+    })
+    assert.equal((await client.request('safety.status')).status, 'PAUSED_RISK')
+    assert.equal(children.length, 1, 'risk stop must not restart the auto-chat worker')
+    assert(exited.some((event) => event.workerId === 'geekAutoStartWithBossMain' && event.restartSuppressed === true))
+    await client.close()
+  } finally {
+    await backend.stop().catch(() => {})
+    await fs.rm(workerControlHome, { recursive: true, force: true })
+  }
+}
+
 console.log('ggr backend server check passed')

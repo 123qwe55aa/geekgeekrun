@@ -13,6 +13,7 @@ import { createTaskService } from './lib/services/task-service.mjs'
 import { createRecordsService } from './lib/services/records-service.mjs'
 import { createSafetyStore } from './lib/services/safety-store.mjs'
 import { createSafetyPolicyService } from './lib/services/safety-policy-service.mjs'
+import { createWorkerControlService } from './lib/services/worker-control-service.mjs'
 import { createBrowserService } from './lib/services/browser-service.mjs'
 import { createBackendBrowserRuntime } from './lib/services/browser/runtime.mjs'
 import { createBrowserRecords } from './lib/services/browser/records.mjs'
@@ -38,6 +39,10 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
     accountHealthCheck: async () => (await records.accountStatus()).authenticated === true,
     now: clock ? () => clock() : undefined
   })
+  let workerControl = services.workerControl
+  const taskWorkerControl = workerControl ?? {
+    handle: (...args) => workerControl.handle(...args)
+  }
   const task = services.task ?? createTaskService({
     spawnProcess: services.spawnProcess,
     workerEntries: services.workerEntries ?? DEFAULT_WORKER_ENTRIES,
@@ -46,8 +51,10 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
     admitStart: async ({ workerId, runRecordId }) => {
       if (workerId === 'geekAutoStartWithBossMain') await policy.preflightStart({ runRecordId })
     },
+    workerControl: taskWorkerControl,
     exitHistoryFile: services.exitHistoryFile ?? path.join(runtimePaths.storageDir, 'task-exits.json')
   })
+  if (!workerControl && !services.task) workerControl = createWorkerControlService({ policy, task })
   const approval = services.approval ?? createApprovalService({
     queueFilePath: path.join(runtimePaths.storageDir, 'hr-reply-approval-queue.json'),
     emit,

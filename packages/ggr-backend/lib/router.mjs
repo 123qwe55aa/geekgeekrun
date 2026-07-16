@@ -48,7 +48,13 @@ export function registerServiceHandlers(router, { methods, task, approval, polic
       if (params.includeAll !== undefined && typeof params.includeAll !== 'boolean') throw invalidParams('includeAll must be a boolean')
       if (params.kind !== undefined && (typeof params.kind !== 'string' || !params.kind)) throw invalidParams('kind must be a non-empty string')
       if (params.status !== undefined && (typeof params.status !== 'string' || !params.status)) throw invalidParams('status must be a non-empty string')
-      if ((params.kind !== undefined || params.status !== undefined) && listSafetyApprovals) return listSafetyApprovals({ kind: params.kind, status: params.status })
+      if ((params.kind !== undefined || params.status !== undefined) && listSafetyApprovals) {
+        return listSafetyApprovals({
+          ...(params.kind === undefined ? {} : { kind: params.kind }),
+          ...(params.includeAll || params.status !== undefined ? {} : { status: 'PENDING' }),
+          ...(params.status === undefined ? {} : { status: params.status })
+        })
+      }
       return approval.list({ includeAll: params.includeAll })
     })
     .register(methods.APPROVAL_CREATE, (params) => {

@@ -11,6 +11,7 @@ import { createBackendServer } from '../server.mjs'
 import { createRuntimePaths } from '../lib/runtime-paths.mjs'
 import { createConfigService } from '../lib/services/config-service.mjs'
 import { createLogger } from '../lib/logger.mjs'
+import { createRouter, registerServiceHandlers } from '../lib/router.mjs'
 
 async function rawSession(socketPath, requests) {
   const socket = net.createConnection(socketPath)
@@ -37,6 +38,27 @@ async function rawSession(socketPath, requests) {
       for (const request of requests) socket.write(`${JSON.stringify(request)}\n`)
     })
   })
+}
+
+{
+  const filters = []
+  const router = createRouter()
+  registerServiceHandlers(router, {
+    methods: { APPROVAL_LIST: 'approval.list' },
+    task: {},
+    approval: { list: async () => [] },
+    policy: {},
+    listSafetyApprovals: async (value) => { filters.push(value); return [] }
+  })
+
+  await router.dispatch({ method: 'approval.list', params: { kind: 'AUTO_CHAT' } })
+  await router.dispatch({ method: 'approval.list', params: { kind: 'AUTO_CHAT', status: 'REJECTED' } })
+  await router.dispatch({ method: 'approval.list', params: { includeAll: true, kind: 'AUTO_CHAT' } })
+  assert.deepEqual(filters, [
+    { kind: 'AUTO_CHAT', status: 'PENDING' },
+    { kind: 'AUTO_CHAT', status: 'REJECTED' },
+    { kind: 'AUTO_CHAT' }
+  ], 'filtered approval listing must preserve the pending default unless all statuses are requested')
 }
 
 const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ggr-backend-'))

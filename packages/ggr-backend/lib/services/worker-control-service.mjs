@@ -10,6 +10,26 @@ const CONTROL_TYPES = new Set([
   'approval.setStatus'
 ])
 
+const AUTO_CHAT_CONTROL_TYPES = new Set([
+  'agent.state',
+  'browse.record',
+  'candidate.propose',
+  'grant.consume',
+  'chat.result',
+  'risk.detected'
+])
+
+const READ_NO_REPLY_CONTROL_TYPES = new Set([
+  'approval.list',
+  'approval.create',
+  'approval.setStatus'
+])
+
+const WORKER_CONTROL_TYPES = new Map([
+  ['geekAutoStartWithBossMain', AUTO_CHAT_CONTROL_TYPES],
+  ['readNoReplyAutoReminderMain', READ_NO_REPLY_CONTROL_TYPES]
+])
+
 function failure(code, message) {
   return Object.assign(new Error(message), { code })
 }
@@ -19,6 +39,12 @@ function assertMessage({ workerId, runRecordId, type, data } = {}) {
   if (runRecordId === undefined || runRecordId === null || runRecordId === '') throw failure('INVALID_WORKER_CONTROL_CONTEXT', 'runRecordId is required')
   if (!CONTROL_TYPES.has(type)) throw failure('INVALID_WORKER_CONTROL_TYPE', `Unsupported worker control type: ${type}`)
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw failure('INVALID_WORKER_CONTROL_DATA', 'worker control data must be an object')
+}
+
+function assertWorkerControlAllowed(workerId, type) {
+  if (!WORKER_CONTROL_TYPES.get(workerId)?.has(type)) {
+    throw failure('INVALID_WORKER_CONTROL', `Worker ${workerId} cannot use worker control type: ${type}`)
+  }
 }
 
 function derivedData(data, workerId, runRecordId) {
@@ -33,6 +59,7 @@ export function createWorkerControlService({ policy, task, approval, scheduleSto
   async function handle(message = {}) {
     const { workerId, runRecordId, type, data } = message
     assertMessage(message)
+    assertWorkerControlAllowed(workerId, type)
     const routedData = derivedData(data, workerId, runRecordId)
 
     switch (type) {

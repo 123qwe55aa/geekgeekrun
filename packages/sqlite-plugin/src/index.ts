@@ -100,7 +100,7 @@ export default class SqlitePlugin {
       (page) => {
         page.on('response', async (response) => {
           const ds = await this.initPromise;
-          if (response.url().startsWith('https://www.zhipin.com/wapi/zpgeek/job/detail.json')) {
+          if (response.url().startsWith('https://www.zhipin.com/wapi/zpgeek/job/detail.json') && response.request().method() === 'GET') {
             const data = await response.json()
             if (data.code === 0) {
               await saveJobInfoFromRecommendPage(await ds, data.zpData)

@@ -21,6 +21,28 @@ function json(value) {
   return `${JSON.stringify(value)}\n`
 }
 
+function updateInstallParams(args) {
+  let deadlineMs = 120_000
+  let cancelRunningTasks = false
+  for (let index = 0; index < args.length; index++) {
+    const argument = args[index]
+    if (argument === '--cancel-running-tasks') {
+      cancelRunningTasks = true
+      continue
+    }
+    if (argument === '--deadline-ms') {
+      const value = Number(args[++index])
+      if (!Number.isInteger(value) || value <= 0 || value > 10 * 60_000) {
+        throw new Error('--deadline-ms must be an integer between 1 and 600000')
+      }
+      deadlineMs = value
+      continue
+    }
+    throw new Error(`Unsupported update install option: ${argument ?? ''}`)
+  }
+  return { deadlineMs, cancelRunningTasks }
+}
+
 export function createCli({
   backendSocket = process.env.GGR_BACKEND_SOCKET ?? defaultSocket('backend.sock'),
   supervisorSocket = process.env.GGR_SUPERVISOR_SOCKET ?? defaultSocket('supervisor.sock'),
@@ -28,17 +50,17 @@ export function createCli({
   write = (line) => process.stdout.write(line),
   clientFactory = createGgrClient
 } = {}) {
-  function client(socketPath, name) {
+  function client(socketPath, name, requestTimeoutMs = 30_000) {
     return clientFactory({
       socketPath,
       client: name,
       clientVersion,
-      requestTimeoutMs: 30000
+      requestTimeoutMs
     })
   }
 
-  async function request(socketPath, name, method, params = {}) {
-    const connection = client(socketPath, name)
+  async function request(socketPath, name, method, params = {}, { requestTimeoutMs = 30_000 } = {}) {
+    const connection = client(socketPath, name, requestTimeoutMs)
     try {
       await connection.connect()
       return await connection.request(method, params)
@@ -78,7 +100,13 @@ export function createCli({
           rollback: 'update.rollback'
         }
         if (!methods[action]) throw new Error(`Unsupported update command: ${action ?? ''}`)
-        result = await request(supervisorSocket, 'ggr-cli', methods[action])
+        result = await request(
+          supervisorSocket,
+          'ggr-cli',
+          methods[action],
+          action === 'install' ? updateInstallParams(args.slice(1)) : {},
+          action === 'install' ? { requestTimeoutMs: 125_000 } : {}
+        )
         break
       }
       case 'safety': {
@@ -110,8 +138,13 @@ export function createCli({
         }
         break
       }
+      case 'queue': {
+        if (args[0] !== 'list') throw new Error(`Unsupported queue command: ${args[0] ?? ''}`)
+        result = await request(backendSocket, 'ggr-cli', 'approval.list', { includeAll: false, kind: 'AUTO_CHAT' })
+        break
+      }
       default:
-        throw new Error('Usage: ggr <status|tasks|start|stop|update|safety|approvals>')
+        throw new Error('Usage: ggr <status|tasks|start|stop|update|safety|approvals|queue>')
     }
     write(json(result))
     return result

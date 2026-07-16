@@ -41,4 +41,16 @@ await assert.rejects(
   (error) => error?.code === 'CHAT_MESSAGE_EMPTY'
 )
 
+await assert.rejects(
+  () => sendConversationMessage({
+    page: { evaluate: async () => false },
+    text: '你好',
+    verificationTimeoutMs: 1,
+    findInput: async () => ({ id: 'composer' }),
+    typeMessage: async () => true,
+    findSend: async () => ({ click: async () => {} })
+  }),
+  (error) => error?.code === 'CHAT_SEND_UNVERIFIED'
+)
+
 console.log('conversation adapter checks passed')

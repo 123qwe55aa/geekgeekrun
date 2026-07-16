@@ -7,6 +7,19 @@ export type BackendClient = ReturnType<typeof createGgrClient>
 
 let client: BackendClient | undefined
 const connectedListeners = new Set<(backend: BackendClient) => void>()
+const retryableBackendMethods = new Set([
+  'system.health',
+  'config.read',
+  'records.list',
+  'account.status',
+  'task.list',
+  'browser.getAvailable',
+  'safety.status',
+  'safety.config.get',
+  'agent.status',
+  'approval.list',
+  'approval.get'
+])
 
 function notifyConnected(backend: BackendClient): void {
   for (const listener of connectedListeners) {
@@ -64,7 +77,14 @@ export async function requestBackend<T>(method: string, params: Record<string, u
       await backend.connect()
       notifyConnected(backend)
     }
-    return await backend.request(method, params) as T
+    try {
+      return await backend.request(method, params) as T
+    } catch (error) {
+      if ((error as { code?: unknown } | undefined)?.code !== 'CONNECTION_CLOSED' || !retryableBackendMethods.has(method)) throw error
+      await backend.connect()
+      notifyConnected(backend)
+      return await backend.request(method, params) as T
+    }
   } catch (error) {
     throw toElectronError(error)
   }

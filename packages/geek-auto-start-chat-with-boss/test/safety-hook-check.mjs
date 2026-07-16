@@ -23,7 +23,7 @@ const job = { jobInfo: { encryptId: 'job-1', encryptUserId: 'boss-1' }, brandNam
     targetJobData: job,
     startChatButtonProxy: { click: async () => { clicks++ } },
     waitForAddFriendResponse: async () => ({ code: 0 }),
-    handleAddFriendResponse: async () => events.push(['response'])
+    handleAddFriendResponse: async () => { events.push(['response']); return { outcome: 'sent' } }
   })
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(clicks, 0, 'the BOSS send click must wait for approval')
@@ -36,6 +36,23 @@ const job = { jobInfo: { encryptId: 'job-1', encryptUserId: 'boss-1' }, brandNam
     ['outcome', { pageUrl: 'https://www.zhipin.com/web/geek/jobs', job, sendControlPresent: true }, 'sent']
   ])
   assert.equal(clicks, 1)
+}
+
+{
+  const outcomes = []
+  await runApprovedNewChatAttempt({
+    hooks: {
+      newChatWillStartup: { promise: async () => {} },
+      newChatAttempted: { promise: async () => {} },
+      newChatOutcome: { promise: async (_context, outcome) => outcomes.push(outcome) }
+    },
+    page: { url: () => 'https://www.zhipin.com/web/geek/jobs' },
+    targetJobData: job,
+    startChatButtonProxy: { click: async () => {} },
+    waitForAddFriendResponse: async () => ({ code: 0 }),
+    handleAddFriendResponse: async () => undefined
+  })
+  assert.deepEqual(outcomes, ['unknown'], 'an unverified delivery must not consume a sent outcome')
 }
 
 {

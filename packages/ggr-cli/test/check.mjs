@@ -53,10 +53,12 @@ const supervisor = await listen(supervisorSocket, (request) => {
   if (request.method === 'system.handshake') return { protocolMin: 1, protocolMax: 1 }
   if (request.method === 'supervisor.status') return { current: '1.2.3' }
   if (request.method === 'update.check') return { available: '1.2.4' }
+  if (request.method === 'update.install') return { current: '1.2.4' }
   throw new Error(`Unexpected supervisor method: ${request.method}`)
 })
 
 const output = []
+const clientOptions = []
 const cli = createCli({
   backendSocket,
   supervisorSocket,
@@ -72,6 +74,23 @@ await cli.run(['stop', 'read-no-reply'])
 assert.deepEqual(calls.at(-1), ['backend', 'task.stop', { workerId: 'readNoReplyAutoReminderMain' }])
 await cli.run(['update', 'check'])
 assert.deepEqual(JSON.parse(output.pop()), { available: '1.2.4' })
+await cli.run(['update', 'install', '--deadline-ms', '60000', '--cancel-running-tasks'])
+assert.deepEqual(calls.at(-1), ['supervisor', 'update.install', { deadlineMs: 60000, cancelRunningTasks: true }])
+
+const timeoutCli = createCli({
+  write: () => {},
+  clientFactory: (options) => {
+    clientOptions.push(options)
+    return {
+      connected: false,
+      async connect() { this.connected = true },
+      async request() { return {} },
+      async close() {}
+    }
+  }
+})
+await timeoutCli.run(['update', 'install'])
+assert.equal(clientOptions.at(-1).requestTimeoutMs, 125000, 'the CLI must wait longer than the default backend-install deadline')
 assert.equal(calls.some(([target]) => target === 'supervisor'), true)
 await cli.run(['safety', 'status'])
 assert.deepEqual(calls.at(-1), ['backend', 'safety.status', {}])
@@ -80,6 +99,8 @@ assert.deepEqual(calls.at(-1), ['backend', 'safety.config.get', {}])
 await cli.run(['safety', 'resume'])
 assert.deepEqual(calls.at(-1), ['backend', 'safety.resume', {}])
 await cli.run(['approvals', 'list'])
+assert.deepEqual(calls.at(-1), ['backend', 'approval.list', { includeAll: false, kind: 'AUTO_CHAT' }])
+await cli.run(['queue', 'list'])
 assert.deepEqual(calls.at(-1), ['backend', 'approval.list', { includeAll: false, kind: 'AUTO_CHAT' }])
 await cli.run(['approvals', 'show', 'approval-1'])
 assert.deepEqual(calls.at(-1), ['backend', 'approval.get', { id: 'approval-1' }])

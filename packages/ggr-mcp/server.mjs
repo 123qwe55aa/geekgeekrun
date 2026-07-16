@@ -39,6 +39,16 @@ const tools = [
     handler: args => agentService.listApprovals({ ...args, kind: 'AUTO_CHAT' })
   },
   {
+    name: 'boss_list_chat_queue',
+    description: 'List automatic-chat candidates waiting for approval. Each item is persistent and no message has been sent yet.',
+    inputSchema: {
+      type: 'object',
+      properties: { includeAll: { type: 'boolean', default: false } },
+      additionalProperties: false
+    },
+    handler: args => agentService.listApprovals({ ...args, kind: 'AUTO_CHAT' })
+  },
+  {
     name: 'boss_approve_chat',
     description: 'Approve one pending automatic-chat request. The backend worker consumes the approval itself.',
     inputSchema: {

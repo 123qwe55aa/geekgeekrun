@@ -126,6 +126,7 @@ for (const toolName of [
   'boss_require_human_intervention',
   'boss_get_safety_status',
   'boss_list_chat_approvals',
+  'boss_list_chat_queue',
   'boss_approve_chat',
   'boss_reject_chat',
   'boss_resume_safety'

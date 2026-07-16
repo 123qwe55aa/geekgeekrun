@@ -63,6 +63,8 @@ const clientSource = await fs.readFile(
 )
 assert.match(clientSource, /function onBackendConnected/, 'backend client must expose successful-connection notifications')
 assert.match(clientSource, /if \(!backend\.connected\)[\s\S]*?notifyConnected\(backend\)/, 'request-triggered reconnects must notify event subscribers')
+assert.match(clientSource, /const retryableBackendMethods = new Set/, 'read-only backend RPCs must declare which requests are safe to retry after an update disconnect')
+assert.match(clientSource, /CONNECTION_CLOSED'[\s\S]*?retryableBackendMethods\.has\(method\)[\s\S]*?await backend\.connect\(\)[\s\S]*?return await backend\.request\(method, params\)/, 'a read-only request interrupted by backend activation must reconnect and retry once')
 
 const eventsSource = await fs.readFile(
   path.join(repoRoot, 'packages/ui/src/main/backend/events.ts'),

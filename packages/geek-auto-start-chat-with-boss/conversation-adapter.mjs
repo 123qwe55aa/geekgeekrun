@@ -4,6 +4,22 @@ function chatFailure(code, message) {
   return Object.assign(new Error(message), { code })
 }
 
+/** Wait until BOSS's chat history confirms that the current user sent text. */
+export async function waitForSelfEcho(page, text, { timeout = 10_000, pollIntervalMs = 100 } = {}) {
+  const expected = text.trim()
+  const deadline = Date.now() + timeout
+  while (true) {
+    const sent = await page.evaluate((message) => {
+      const history = document.querySelector('.message-content .chat-record')?.__vue__?.list$ ?? []
+      return Array.isArray(history) && history.some((item) => item?.isSelf && String(item.text ?? '').trim() === message)
+    }, expected)
+    if (sent) return true
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) return false
+    await new Promise((resolve) => setTimeout(resolve, Math.min(pollIntervalMs, remaining)))
+  }
+}
+
 /**
  * Send a text message through an already-open BOSS conversation.
  *
@@ -17,7 +33,8 @@ export async function sendConversationMessage({
   findInput = findChatInput,
   typeMessage = typeInChat,
   findSend = findSendButton,
-  verifySent = null
+  verifySent,
+  verificationTimeoutMs = 10_000
 } = {}) {
   if (!page) throw new TypeError('page is required')
   if (typeof text !== 'string' || !text.trim()) {
@@ -37,7 +54,10 @@ export async function sendConversationMessage({
   }
   await sendButton.click()
 
-  if (verifySent && !await verifySent(page, text)) {
+  const verified = verifySent
+    ? await verifySent(page, text)
+    : await waitForSelfEcho(page, text, { timeout: verificationTimeoutMs })
+  if (!verified) {
     throw chatFailure('CHAT_SEND_UNVERIFIED', 'chat message could not be verified')
   }
 

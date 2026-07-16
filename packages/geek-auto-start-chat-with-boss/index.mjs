@@ -93,12 +93,13 @@ export async function runApprovedNewChatAttempt({
     await startChatButtonProxy.click()
     clickStarted = true
     const response = await addFriendResponsePromise
-    await handleAddFriendResponse(response)
-    await hooks.newChatOutcome?.promise(context, 'sent')
+    const delivery = await handleAddFriendResponse(response)
+    await hooks.newChatOutcome?.promise(context, delivery?.outcome === 'sent' ? 'sent' : 'unknown')
     return response
   } catch (error) {
-    if (await handleFailure?.(error)) {
-      await hooks.newChatOutcome?.promise(context, 'sent')
+    const recovery = await handleFailure?.(error)
+    if (recovery) {
+      await hooks.newChatOutcome?.promise(context, recovery?.outcome === 'sent' ? 'sent' : 'unknown')
       return undefined
     }
     await hooks.newChatOutcome?.promise(context, clickStarted ? 'unknown' : 'failedPreAction')
@@ -1612,10 +1613,11 @@ async function toRecommendPage (hooks) {
             const CUSTOM_OPENING = customOpeningMessage
 
             const sendCustomOpening = async () => {
-              if (!CUSTOM_OPENING.trim()) return
-              await sendConversationMessage({ page, text: CUSTOM_OPENING })
+              if (!CUSTOM_OPENING.trim()) return { outcome: 'unknown' }
+              const delivery = await sendConversationMessage({ page, text: CUSTOM_OPENING })
               console.log('custom opening sent on chat page')
               await sleep(1000)
+              return delivery
             }
 
             // Try to find and interact with the greet dialog first
@@ -1626,7 +1628,7 @@ async function toRecommendPage (hooks) {
               await greetSendBtn.click()
               await sleepWithRandomDelay(3000)
               // Send custom opening on the chat page (we're already there due to addFriend redirect)
-              await sendCustomOpening()
+              const delivery = await sendCustomOpening()
               // Go back to jobs page after sending
               if (page.url().startsWith('https://www.zhipin.com/web/geek/chat')) {
                 await page.goBack()
@@ -1638,23 +1640,25 @@ async function toRecommendPage (hooks) {
                 await page.goto('https://www.zhipin.com/web/geek/jobs/recommend', { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {})
                 await sleepWithRandomDelay(2000)
               }
+              return delivery
             } else {
               // No greet dialog found - try to handle hasGoToChatPage case
               if (hasGoToChatPage) {
                 // Page already jumped to chat page, send custom opening here before going back
-                await sendCustomOpening()
+                const delivery = await sendCustomOpening()
                 // Then go back to jobs page
                 await page.goBack()
                 await page.waitForFunction(() => {
                   return location.href.startsWith('https://www.zhipin.com/web/geek/jobs') && document.readyState === 'complete'
                 })
                 await sleepWithRandomDelay(2000)
+                return delivery
               } else throw new Error('CHAT_GREETING_DIALOG_NOT_FOUND')
             }
           }
           const handleAddFriendResponse = async (res, { hasGoToChatPage = false } = {}) => {
             if (res.code === 0) {
-              await waitAndHandleChatSuccess({ hasGoToChatPage })
+              return waitAndHandleChatSuccess({ hasGoToChatPage })
             }
             else if (
               res.zpData.bizCode === 1 &&
@@ -1669,7 +1673,7 @@ async function toRecommendPage (hooks) {
                 ?? await page.waitForSelector('.chat-block-dialog .chat-block-footer .sure-btn', { timeout: 5000 })
               await confirmButton.click()
               const nextRes = await waitAddFriendResponse()
-              await handleAddFriendResponse(nextRes)
+              return handleAddFriendResponse(nextRes)
             }
             else if (
               res.zpData.bizCode === 1 &&
@@ -1682,7 +1686,7 @@ async function toRecommendPage (hooks) {
               const confirmButton = await page.waitForSelector(`xpath///*[contains(@class, "chat-block-dialog")]//*[contains(@class, "chat-block-footer")]//*[contains(text(), "继续")]`)
               await confirmButton.click()
               const nextRes = await waitAddFriendResponse()
-              await handleAddFriendResponse(nextRes)
+              return handleAddFriendResponse(nextRes)
             }
             else if (
               res.zpData.bizCode === 1 &&
@@ -1712,8 +1716,7 @@ async function toRecommendPage (hooks) {
             handleAddFriendResponse,
             handleFailure: async (err) => {
               if (!(err instanceof Error) || err.message !== 'PAGE_JUMPED_TO_CHAT_PAGE') return false
-              await handleAddFriendResponse({ code: 0 }, { hasGoToChatPage: true })
-              return true
+              return handleAddFriendResponse({ code: 0 }, { hasGoToChatPage: true })
             }
           })
         } catch (err) {

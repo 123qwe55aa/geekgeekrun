@@ -97,6 +97,13 @@ try {
   `)
   const siblingSend = await findSendButton(page)
   assert.equal(await siblingSend.evaluate((element) => element.id), 'sibling-send', 'send lookup supports BOSS sibling composer controls')
+
+  await page.setContent(`
+    <div id="unrelated-editor" contenteditable="true"></div>
+    <section class="chat-conversation"><textarea id="conversation-composer"></textarea></section>
+  `)
+  const scopedInput = await findChatInput(page)
+  assert.equal(await scopedInput.evaluate((element) => element.id), 'conversation-composer', 'a visible conversation composer must win over unrelated page editors')
 } finally {
   await browser.close()
 }

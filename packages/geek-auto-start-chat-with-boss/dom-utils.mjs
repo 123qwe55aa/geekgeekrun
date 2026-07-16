@@ -114,12 +114,17 @@ export async function clickByText(page, text, { tag = '*', timeout = 5000 } = {}
 export async function findChatInput(page, { timeout = 10000 } = {}) {
   // The page keeps hidden composer templates in the DOM.  Returning one of
   // those makes later typing appear to succeed while no message is sent.
-  return findVisibleSelector(page, [
+  const selectors = [
     '[contenteditable="true"]',
     '[role="textbox"]',
     'textarea',
     'input[type="text"]'
-  ], timeout)
+  ]
+  // Search inside the conversation first: BOSS pages can include unrelated
+  // rich-text editors elsewhere in the document.
+  const conversation = await page.$('.chat-conversation')
+  if (conversation) return findVisibleSelector(conversation, selectors, timeout)
+  return findVisibleSelector(page, selectors, timeout)
 }
 
 /**

@@ -16,6 +16,9 @@ const electronViteConfigSource = await read('packages/ui/electron.vite.config.ts
 assert.doesNotMatch(electronViteConfigSource, /externalizeMainBareImportsPlugin/, 'main build must not externalize every bare import, or transitive runtime modules can be omitted from packaged Electron')
 assert.match(electronViteConfigSource, /externalizeDepsPlugin\(\)/, 'main build must retain normal production-dependency externalization')
 
+const backendBootstrapSource = await read('packages/ui/src/main/backend/bootstrap.ts')
+assert.match(backendBootstrapSource, /const BOOTSTRAP_VERSION = '1\.0\.1'/, 'Electron must install a new supervisor bootstrap version when its runtime dependency closure changes')
+
 const traySource = await read('packages/ui/src/main/features/tray.ts')
 assert.match(traySource, /import\s+\{[^}]*Tray[^}]*\}\s+from ['"]electron['"]/, 'tray feature must import Electron Tray')
 assert.match(traySource, /new\s+Tray\(/, 'tray feature must create a Tray instance')

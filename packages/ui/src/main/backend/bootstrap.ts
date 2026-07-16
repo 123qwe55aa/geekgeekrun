@@ -5,7 +5,7 @@ import { app } from 'electron'
 import { connectBackend } from './client'
 import { getSupervisorClient, getSupervisorSocketPath, installBackendUpdate } from './supervisor-client'
 
-const BOOTSTRAP_VERSION = '1.0.0'
+const BOOTSTRAP_VERSION = '1.0.1'
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 const isDevelopment = () => process.env.NODE_ENV === 'development'

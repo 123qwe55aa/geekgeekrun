@@ -73,6 +73,21 @@ await installLaunchdSupervisor({
   }
 })
 assert.deepEqual(reloadCalls.map(([command]) => command), ['bootstrap', 'bootout', 'bootstrap', 'kickstart'], 'only a known already-loaded service is explicitly reloaded')
+const fallbackHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ggrd-launchd-fallback-'))
+const fallbackCalls = []
+await installLaunchdSupervisor({
+  homeDirectory: fallbackHome, bootstrapSource, bootstrapVersion, uid: 501,
+  runLaunchctl: async (command, args) => {
+    fallbackCalls.push([command, args])
+    if (command === 'bootstrap') {
+      throw Object.assign(new Error('Input/output error'), {
+        code: 'LAUNCHCTL_FAILED',
+        stderr: 'Bootstrap failed: 5: Input/output error'
+      })
+    }
+  }
+})
+assert.deepEqual(fallbackCalls.map(([command]) => command), ['bootstrap', 'load'], 'macOS bootstrap EIO must fall back to the legacy per-user loader')
 await assert.rejects(installLaunchdSupervisor({
   homeDirectory: reloadHome, bootstrapSource, bootstrapVersion: '1.0.1', uid: 501,
   runLaunchctl: async () => { throw Object.assign(new Error('permission denied'), { code: 'LAUNCHCTL_FAILED' }) }
@@ -87,6 +102,7 @@ await fs.mkdir(path.join(unsafeAgentsHome, 'Library'))
 await fs.symlink(outside, path.join(unsafeAgentsHome, 'Library', 'LaunchAgents'))
 await assert.rejects(installLaunchdSupervisor({ homeDirectory: unsafeAgentsHome, bootstrapSource, bootstrapVersion, uid: 501, runLaunchctl: async () => {} }), /unsafe supervisor directory/, 'symlinked LaunchAgents parents must be rejected before plist writes')
 await fs.rm(reloadHome, { recursive: true, force: true })
+await fs.rm(fallbackHome, { recursive: true, force: true })
 await fs.rm(unsafeHome, { recursive: true, force: true })
 await fs.rm(unsafeAgentsHome, { recursive: true, force: true })
 await fs.rm(outside, { recursive: true, force: true })

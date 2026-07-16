@@ -15,6 +15,11 @@ function buttonXPath(texts) {
   return `xpath/.//button[not(@disabled) and (${texts.map((text) => `contains(normalize-space(.), ${JSON.stringify(text)})`).join(' or ')})]`
 }
 
+function actionXPath(texts) {
+  const textMatch = texts.map((text) => `contains(normalize-space(.), ${JSON.stringify(text)})`).join(' or ')
+  return `xpath/.//*[self::button or self::a or @role='button'][not(@disabled) and not(@aria-disabled='true') and (${textMatch})]`
+}
+
 function textXPath(text, tag) {
   return `xpath///${tag}[contains(normalize-space(.), ${JSON.stringify(text)})]`
 }
@@ -30,10 +35,24 @@ async function findVisibleButtonByText(scope, texts) {
   return null
 }
 
+async function findVisibleActionByText(scope, texts) {
+  const actions = await scope.$$(actionXPath(texts))
+  for (const action of actions) {
+    if (await action.evaluate((element) => {
+      const style = window.getComputedStyle(element)
+      return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0
+    })) return action
+  }
+  return null
+}
+
 export async function findStartChatButton(page, { detailSelector = '.job-detail-box' } = {}) {
   const detail = await page.$(detailSelector)
   if (!detail) return null
-  return findVisibleButtonByText(detail, ['聊一聊', '立即沟通'])
+  // BOSS has rendered this action as both a native button and an anchor/role
+  // button across frontend versions.  Restrict the text lookup to the job
+  // detail panel so unrelated navigation actions cannot be clicked.
+  return findVisibleActionByText(detail, ['聊一聊', '立即沟通'])
 }
 
 export async function findByText(page, text, { tag = '*', timeout = 5000 } = {}) {

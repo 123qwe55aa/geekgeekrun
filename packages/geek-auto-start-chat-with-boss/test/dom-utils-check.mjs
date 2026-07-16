@@ -18,6 +18,23 @@ try {
   assert.equal(await button.evaluate((element) => element.id), 'detail')
 
   await page.setContent(`
+    <section class="job-detail-box">
+      <a id="disabled-link" aria-disabled="true">聊一聊</a>
+      <a id="detail-link" href="/web/geek/chat"><span>聊一聊</span></a>
+    </section>
+  `)
+  const link = await findStartChatButton(page)
+  assert.equal(await link.evaluate((element) => element.id), 'detail-link', 'start chat lookup supports the link control used by newer BOSS pages')
+
+  await page.setContent(`
+    <section class="job-detail-box">
+      <div id="detail-role-button" role="button">立即沟通</div>
+    </section>
+  `)
+  const roleButton = await findStartChatButton(page)
+  assert.equal(await roleButton.evaluate((element) => element.id), 'detail-role-button')
+
+  await page.setContent(`
     <button id="outside-send">发送</button>
     <div role="dialog" aria-label="打招呼">
       <button id="greet-send"><span>发送</span></button>

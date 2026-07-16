@@ -1,25 +1,38 @@
 .group-item {
   .group-title {
-    color: #849492;
-    font-size: 12px;
-    padding: 0.25em 0;
+    color: var(--ggr-text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding: 0.7em 0 0.45em;
   }
   .link-list {
     a {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      height: 2em;
+      min-height: 2.5em;
       box-sizing: border-box;
       padding-left: 1em;
-      font-size: 14px;
+      color: var(--ggr-text);
+      font-size: 13px;
+      border-radius: 8px;
+      transition:
+        background-color 0.16s ease,
+        color 0.16s ease,
+        transform 0.16s ease;
+      &:hover {
+        background: var(--ggr-accent-soft);
+        color: var(--ggr-accent);
+        transform: translateX(2px);
+      }
       &.router-link-active {
-        background-color: #fff;
+        background-color: var(--ggr-surface);
         font-weight: 700;
-        color: #2faa9e;
-        border-radius: 9999px 0 0 9999px;
+        color: var(--ggr-accent);
+        border-radius: 8px;
         position: relative;
-        box-shadow: 0px 0px 10px rgba(50, 114, 108, 0.187);
+        box-shadow: 0 8px 20px rgb(5 40 57 / 10%);
       }
     }
   }

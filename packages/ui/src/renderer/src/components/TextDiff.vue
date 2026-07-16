@@ -38,18 +38,18 @@ pre {
 }
 del {
   text-decoration: line-through;
-  color: #b30000;
-  background: #fadad7;
+  color: var(--el-color-danger);
+  background: var(--ggr-danger-soft);
 }
 
 ins {
-  background: #eaf2c2;
-  color: #406619;
+  background: var(--ggr-success-soft);
+  color: var(--el-color-success);
   text-decoration: none;
 }
 
 .chunk-header {
-  color: #8a008b;
+  color: var(--ggr-accent);
   text-decoration: none;
 }
 </style>

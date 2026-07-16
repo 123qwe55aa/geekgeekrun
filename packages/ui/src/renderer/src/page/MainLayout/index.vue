@@ -1,7 +1,21 @@
 <template>
-  <div class="flex h100vh">
-    <div class="flex flex-col min-w200px w200px pt30px pl30px aside-nav of-hidden">
-      <div class="nav-list flex-1 of-auto pl20px ml--20px">
+  <div class="app-shell">
+    <aside class="aside-nav">
+      <div class="brand-row">
+        <div>
+          <div class="brand-kicker">GGR</div>
+          <div class="brand-name">求职工作台</div>
+        </div>
+        <el-button
+          class="theme-toggle"
+          circle
+          text
+          :title="isNight ? '切换明亮模式' : '切换夜晚模式'"
+          @click="toggleTheme"
+          ><Moon v-if="!isNight" /><Sunny v-else
+        /></el-button>
+      </div>
+      <div class="nav-list">
         <RouterLink v-show="false" to="./TaskManager">任务管理</RouterLink>
         <BossPart />
         <hr class="group-divider" />
@@ -9,7 +23,7 @@
         <hr class="group-divider" />
         <RunDataRecordPart />
       </div>
-      <div class="pt-16px pb-16px flex-0 font-size-12px">
+      <div class="sidebar-footer">
         <div v-if="updateStore.availableNewRelease" mb16px>
           <div
             :style="{
@@ -50,19 +64,21 @@
         </div>
         <BackendUpdatePanel />
       </div>
-    </div>
-    <div class="router-view-wrap">
+    </aside>
+    <main class="router-view-wrap">
       <RouterView v-slot="{ Component }" class="flex-1 of-hidden">
         <KeepAlive>
           <component :is="Component" />
         </KeepAlive>
       </RouterView>
-    </div>
+    </main>
   </div>
 </template>
 
 <script lang="ts" setup>
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { Moon, Sunny } from '@element-plus/icons-vue'
 import useBuildInfo from '@renderer/hooks/useBuildInfo'
 import { gtagRenderer } from '@renderer/utils/gtag'
 import { useUpdateStore, useTaskManagerStore } from '../../store/index'
@@ -74,6 +90,13 @@ import BackendUpdatePanel from '../../components/BackendUpdatePanel.vue'
 useRouter()
 
 const { buildInfo } = useBuildInfo()
+const isNight = ref(document.documentElement.dataset.theme === 'night')
+function toggleTheme() {
+  isNight.value = !isNight.value
+  document.documentElement.dataset.theme = isNight.value ? 'night' : 'light'
+  document.documentElement.classList.toggle('dark', isNight.value)
+  localStorage.setItem('ggr-ui-theme', isNight.value ? 'night' : 'light')
+}
 const handleFeedbackClick = () => {
   gtagRenderer('goto_feedback_clicked')
   electron.ipcRenderer.send('send-feed-back-to-github-issue')
@@ -98,18 +121,66 @@ void taskManagerStore
 </script>
 
 <style lang="scss" scoped>
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  background: var(--ggr-bg);
+}
 .aside-nav {
-  background-image: linear-gradient(45deg, #eaf4f1, #dcf6f2);
+  display: flex;
+  flex: 0 0 244px;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 22px 18px 16px;
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--ggr-sidebar), var(--ggr-sidebar-strong));
+  border-right: 1px solid var(--ggr-border);
+  .brand-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px 18px;
+  }
+  .brand-kicker {
+    color: var(--ggr-accent);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+  }
+  .brand-name {
+    color: var(--ggr-text);
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin-top: 2px;
+  }
+  .theme-toggle {
+    color: var(--ggr-text-muted);
+    &:hover {
+      color: var(--ggr-accent);
+      background: var(--ggr-accent-soft);
+    }
+  }
+  .nav-list {
+    flex: 1;
+    overflow: auto;
+    padding: 0 4px;
+  }
   .nav-list {
     hr.group-divider {
       width: 100%;
       border: 0 solid;
       height: 1px;
-      background-color: #b3c8c3;
-      margin-top: 4px;
-      margin-bottom: 4px;
+      background-color: var(--ggr-border);
+      margin: 10px 0;
       margin-right: 0;
     }
+  }
+  .sidebar-footer {
+    padding: 14px 8px 0;
+    color: var(--ggr-text-muted);
+    font-size: 12px;
+    border-top: 1px solid var(--ggr-border);
   }
   .feedback-button-area,
   .update-button-area {
@@ -124,6 +195,8 @@ void taskManagerStore
   display: flex;
   flex: 1;
   height: 100%;
-  box-shadow: -4px 1px 20px rgb(50 114 108 / 29%);
+  min-width: 0;
+  background: var(--ggr-surface);
+  box-shadow: -4px 1px 24px rgb(3 18 28 / 8%);
 }
 </style>

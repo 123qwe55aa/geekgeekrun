@@ -1,12 +1,69 @@
-html, body {
-  --monospace-font-family: Monaco, Consolas, Menlo;
-  --sans-serif-font-family: 'PingFang SC', 'Microsoft Yahei', Helvetica, Arial;
-  font-family: var(--monospace-font-family), var(--sans-serif-font-family);
+html,
+body {
+  --sans-serif-font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft Yahei', sans-serif;
+  --ggr-bg: #f4f8fb;
+  --ggr-surface: #fff;
+  --ggr-surface-muted: #eef5f7;
+  --ggr-sidebar: #e7f2f0;
+  --ggr-sidebar-strong: #d9ebe7;
+  --ggr-text: #173340;
+  --ggr-text-muted: #6d808a;
+  --ggr-border: #d9e5e8;
+  --ggr-accent: #168b9c;
+  --ggr-accent-soft: #d9f1f3;
+  --ggr-warning-soft: #fff5df;
+  --ggr-danger-soft: #fadad7;
+  --ggr-success-soft: #e2f4e8;
+  --el-color-primary: var(--ggr-accent);
+  --el-color-primary-light-8: var(--ggr-accent-soft);
+  --el-bg-color: var(--ggr-surface);
+  --el-bg-color-page: var(--ggr-bg);
+  --el-text-color-primary: var(--ggr-text);
+  --el-text-color-regular: #526a75;
+  --el-text-color-secondary: var(--ggr-text-muted);
+  --el-border-color: var(--ggr-border);
+  --el-fill-color-light: var(--ggr-surface-muted);
+  font-family: var(--sans-serif-font-family);
   position: relative;
   width: 100%;
   height: 100%;
 }
-button, input, textarea {
+html[data-theme='night'],
+html[data-theme='night'] body {
+  --ggr-bg: #07131f;
+  --ggr-surface: #0c1d2d;
+  --ggr-surface-muted: #10283b;
+  --ggr-sidebar: #091b2a;
+  --ggr-sidebar-strong: #102a3f;
+  --ggr-text: #e5f3ff;
+  --ggr-text-muted: #8fa9bb;
+  --ggr-border: #1d4057;
+  --ggr-accent: #38bdf8;
+  --ggr-accent-soft: #123d56;
+  --ggr-warning-soft: #3c2d12;
+  --ggr-danger-soft: #421f28;
+  --ggr-success-soft: #133827;
+  --el-color-primary: var(--ggr-accent);
+  --el-color-primary-light-8: var(--ggr-accent-soft);
+  --el-bg-color: var(--ggr-surface);
+  --el-bg-color-page: var(--ggr-bg);
+  --el-text-color-primary: var(--ggr-text);
+  --el-text-color-regular: #bdd0df;
+  --el-text-color-secondary: var(--ggr-text-muted);
+  --el-border-color: var(--ggr-border);
+  --el-fill-color-light: var(--ggr-surface-muted);
+  color-scheme: dark;
+}
+body {
+  color: var(--ggr-text);
+  background: var(--ggr-bg);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+button,
+input,
+textarea {
   font-family: inherit;
 }
 #app {

@@ -16,6 +16,15 @@ const electronViteConfigSource = await read('packages/ui/electron.vite.config.ts
 assert.doesNotMatch(electronViteConfigSource, /externalizeMainBareImportsPlugin/, 'main build must not externalize every bare import, or transitive runtime modules can be omitted from packaged Electron')
 assert.match(electronViteConfigSource, /externalizeDepsPlugin\(\)/, 'main build must retain normal production-dependency externalization')
 
+const rendererMainSource = await read('packages/ui/src/renderer/src/main.ts')
+assert.match(rendererMainSource, /ggr-ui-theme/, 'the renderer must restore the persisted UI theme')
+assert.match(rendererMainSource, /classList\.toggle\('dark', initialTheme === 'night'\)/, 'Element Plus must receive the night-mode marker')
+
+const mainLayoutSource = await read('packages/ui/src/renderer/src/page/MainLayout/index.vue')
+assert.match(mainLayoutSource, /切换夜晚模式/, 'the shell must expose a night-mode control')
+assert.match(mainLayoutSource, /localStorage\.setItem\('ggr-ui-theme'/, 'theme selection must persist between launches')
+assert.match(mainLayoutSource, /classList\.toggle\('dark', isNight\.value\)/, 'theme switching must update Element Plus as well')
+
 const backendBootstrapSource = await read('packages/ui/src/main/backend/bootstrap.ts')
 assert.doesNotMatch(backendBootstrapSource, /BOOTSTRAP_VERSION|installLaunchdSupervisor|installBackendUpdate/, 'Electron must only connect to the separately released Runtime')
 

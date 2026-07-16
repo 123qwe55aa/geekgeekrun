@@ -53,6 +53,17 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
     admitStart: ({ runRecordId }) => policy.preflightStart({ runRecordId })
   })
 
+  await policy.stopForQuota({ reason: 'daily chat limit reached' })
+  const quotaPause = await policy.status()
+  await assert.rejects(
+    service.start({ workerId: 'geekAutoStartWithBossMain' }),
+    (error) => error.code === 'PAUSED_QUOTA' && error.data?.eligibleAt === null
+  )
+  assert.equal(spawnCalls.length, 0, 'quota pauses must reject before a worker process is spawned')
+  assert.deepEqual(await policy.status(), quotaPause, 'quota admission rejection must not change the paused policy state')
+
+  await policy.resume()
+
   await policy.detectRisk({ statusCode: 403 })
   await assert.rejects(service.start({ workerId: 'geekAutoStartWithBossMain' }), { code: 'RISK_COOLDOWN_ACTIVE' })
   assert.equal(spawnCalls.length, 0, 'risk cooldown must reject before a worker process is spawned')
@@ -386,6 +397,61 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
   children[2].emit('exit', 1, null)
   assert.equal(scheduled.length, 0, 'the circuit breaker must suppress another restart')
   assert(events.some(({ event, data }) => event === 'task.exited' && data.restartSuppressed === true), 'the suppressed restart must be observable')
+}
+
+{
+  let state = null
+  const children = []
+  const scheduled = []
+  const events = []
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ggr-policy-restart-'))
+  const exitHistoryFile = path.join(tempDir, 'private', 'task-exits.json')
+  const store = {
+    readState: async () => state,
+    transaction: async (callback) => callback({
+      readState: async () => state,
+      upsertState: async ({ scopeKey, state: next }) => {
+        state = { scopeKey, state: structuredClone(next) }
+        return state
+      },
+      insertEvent: async () => ({})
+    })
+  }
+  const policy = createSafetyPolicyService({ store, accountHealthCheck: async () => true })
+  const service = createTaskService({
+    spawnProcess: () => {
+      const child = fakeChild(450 + children.length)
+      children.push(child)
+      return child
+    },
+    workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+    emit: (event, data) => events.push({ event, data }),
+    admitStart: ({ runRecordId }) => policy.preflightStart({ runRecordId }),
+    exitHistoryFile,
+    scheduleRestart(callback, delayMs) {
+      scheduled.push({ callback, delayMs })
+      return scheduled.length
+    },
+    restartPolicy: { maxRestarts: 1, windowMs: 60_000, initialDelayMs: 1, maxDelayMs: 1 }
+  })
+  try {
+    await service.start({ workerId: 'geekAutoStartWithBossMain' })
+    children[0].emit('exit', 1, null)
+    assert.equal(scheduled.length, 1, 'a failed auto-chat run must schedule one restart admission')
+
+    await policy.stopForQuota({ reason: 'quota reached before restart' })
+    await scheduled.shift().callback()
+
+    assert.equal(children.length, 1, 'a policy pause before the restart callback must create no replacement child')
+    const suppressed = events.find(({ event, data }) => event === 'task.exited' && data.restartSuppressed === true)
+    assert.equal(suppressed?.data.restartSuppressionCode, 'PAUSED_QUOTA')
+    const persisted = JSON.parse(await fs.readFile(exitHistoryFile, 'utf8'))
+    assert.equal(persisted.geekAutoStartWithBossMain.restartSuppressed, true)
+    assert.equal(persisted.geekAutoStartWithBossMain.restartSuppressionCode, 'PAUSED_QUOTA')
+  } finally {
+    await service.stopAll()
+    await fs.rm(tempDir, { recursive: true, force: true })
+  }
 }
 
 {

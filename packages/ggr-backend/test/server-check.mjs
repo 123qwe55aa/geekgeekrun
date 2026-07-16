@@ -379,11 +379,18 @@ try {
   const policyHome = await fs.mkdtemp('/tmp/ggr-safety-rpc-')
   const paths = createRuntimePaths(policyHome)
   const reviewers = []
+  let resumeCount = 0
   const policy = {
     async status() { return { status: 'PAUSED_RISK' } },
     getConfig() { return { chatPerHour: 5 } },
     updateConfig(patch) { return patch },
     async resume() {
+      resumeCount++
+      if (resumeCount === 2) {
+        throw Object.assign(new Error('auto-chat is paused after reaching a quota and requires manual resume'), {
+          code: 'PAUSED_QUOTA', data: { eligibleAt: null, reason: 'daily chat limit reached' }
+        })
+      }
       throw Object.assign(new Error('auto-chat risk cooldown is active'), {
         code: 'RISK_COOLDOWN_ACTIVE', data: { pausedUntil: '2026-07-17T00:00:00.000Z' }
       })
@@ -413,15 +420,21 @@ try {
     ])
     assert.equal(beforeHandshake.error.code, 'HANDSHAKE_REQUIRED')
 
-    const [, resume, approve] = await rawSession(paths.backendSocket, [
+    const [, resume, quotaResume, approve] = await rawSession(paths.backendSocket, [
       { id: 'handshake', method: 'system.handshake', params: { client: 'socket-client', clientVersion: '9.9.9', protocolVersion: 1 } },
       { id: 'resume', method: 'safety.resume', params: {} },
+      { id: 'quota-resume', method: 'safety.resume', params: {} },
       { id: 'approve', method: 'approval.approve', params: { id: 'policy-approval' } }
     ])
     assert.deepEqual(resume.error, {
       code: 'RISK_COOLDOWN_ACTIVE',
       message: 'auto-chat risk cooldown is active',
       data: { pausedUntil: '2026-07-17T00:00:00.000Z' }
+    })
+    assert.deepEqual(quotaResume.error, {
+      code: 'PAUSED_QUOTA',
+      message: 'auto-chat is paused after reaching a quota and requires manual resume',
+      data: { eligibleAt: null, reason: 'daily chat limit reached' }
     })
     assert.deepEqual(approve.result, { id: 'policy-approval', status: 'APPROVED' })
     assert.deepEqual(reviewers, [{ client: 'socket-client', clientVersion: '9.9.9' }])

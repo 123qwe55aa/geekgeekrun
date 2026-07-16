@@ -181,6 +181,11 @@ try {
     policy.consumeGrant({ grant: idleGrant.grantForWorker, ...candidate, jobId: 'job-idle-grant' }),
     (error) => error.code === 'RUN_NOT_ACTIVE'
   )
+  await assert.rejects(
+    policy.preflightStart({ runRecordId: candidate.runRecordId }),
+    (error) => error.code === 'PAUSED_QUOTA' && error.data?.eligibleAt === null
+  )
+  await policy.resume()
   await policy.preflightStart({ runRecordId: candidate.runRecordId })
   const stoppedRunGrant = await policy.createAutoChatApproval({ ...candidate, jobId: 'job-stopped-run' })
   await policy.approve({ id: stoppedRunGrant.id, actor: { client: 'ggr-cli', clientVersion: '0.0.0' } })

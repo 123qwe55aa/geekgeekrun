@@ -342,10 +342,54 @@ export function createTaskService({
         ...(lastExit.closeError ? { closeError: lastExit.closeError } : {})
       })
       if (restarting) {
-        restartState.timer = scheduleRestart(() => {
+        const suppressRestart = (error) => {
+          stoppedWorkers.add(workerId)
+          const restartSuppressionCode = typeof error?.code === 'string' ? error.code : 'RESTART_ADMISSION_REJECTED'
+          const suppressedExit = {
+            ...lastExit,
+            restarting: false,
+            restartSuppressed: true,
+            restartCount: restartCount + 1,
+            restartSuppressionCode
+          }
+          exitHistory.set(workerId, suppressedExit)
+          try {
+            writeExitHistory(exitHistoryFile, exitHistory)
+          } catch (persistError) {
+            emit('task.progress', {
+              workerId,
+              runRecordId,
+              state: 'exit-history-write-failed',
+              code: 'TASK_EXIT_HISTORY_WRITE_FAILED',
+              message: redactLine(persistError.message)
+            })
+          }
+          emit('task.exited', {
+            workerId,
+            runRecordId,
+            code,
+            signal,
+            restarting: false,
+            restartCount: restartCount + 1,
+            restartSuppressed: true,
+            restartSuppressionCode,
+            ...(suppressedExit.error ? { error: suppressedExit.error } : {}),
+            ...(suppressedExit.closeError ? { closeError: suppressedExit.closeError } : {})
+          })
+        }
+        restartState.timer = scheduleRestart(async () => {
           restartState.timer = null
           if (!stoppedWorkers.has(workerId) && !workers.has(workerId) && restartStates.get(workerId) === restartState) {
-            launch(workerId, restartCount + 1, options, runRecordId, restartState)
+            try {
+              if (admitStart) await admitStart({ workerId, runRecordId })
+              if (!stoppedWorkers.has(workerId) && !workers.has(workerId) && restartStates.get(workerId) === restartState) {
+                launch(workerId, restartCount + 1, options, runRecordId, restartState)
+              }
+            } catch (error) {
+              if (!stoppedWorkers.has(workerId) && !workers.has(workerId) && restartStates.get(workerId) === restartState) {
+                suppressRestart(error)
+              }
+            }
           }
         }, restartDelayMs)
       }

@@ -174,6 +174,12 @@ export function createSafetyPolicyService({
     const result = await store.transaction(async (tx) => {
       const current = normalizeState(await tx.readState(AUTO_CHAT_SCOPE))
       if (current.status === 'PAUSED_INVALID_LOGIN') throw failure('INVALID_LOGIN_PAUSED', 'auto-chat is paused until login health is restored')
+      if (current.status === 'PAUSED_QUOTA') {
+        throw failure('PAUSED_QUOTA', 'auto-chat is paused after reaching a quota and requires manual resume', {
+          eligibleAt: null,
+          reason: current.reason
+        })
+      }
       if (current.status === 'PAUSED_RISK') {
         if (current.pausedUntil && new Date(current.pausedUntil) > at) {
           throw failure('RISK_COOLDOWN_ACTIVE', 'auto-chat risk cooldown is active', { pausedUntil: current.pausedUntil })

@@ -48,6 +48,40 @@ try {
       expiresAt: new Date('2026-07-17T00:00:00.000Z')
     })
   }), /UNIQUE constraint failed/)
+
+  const rawSecret = 'never-store-this-cookie-token'
+  const event = await store.appendEvent({
+    scopeKey: 'auto-chat',
+    type: 'risk.detected',
+    payload: { safe: 'shown', nested: { apiToken: rawSecret } }
+  })
+  const approval = await store.transaction((tx) => tx.insertApproval({
+    id: 'approval-redacted',
+    kind: 'AUTO_CHAT',
+    context: { safe: 'shown', sessionCookie: rawSecret },
+    contextHash: 'context-redacted',
+    expiresAt: new Date('2026-07-17T00:00:00.000Z')
+  }))
+  const ledger = await store.transaction((tx) => tx.insertLedger({
+    actionType: 'AUTO_CHAT',
+    status: 'BLOCKED',
+    details: { safe: 'shown', authorization: `Bearer ${rawSecret}` }
+  }))
+  const storedJson = await database.query(
+    "SELECT payload_json AS value FROM ggr_safety_event WHERE type = 'risk.detected' UNION ALL SELECT context_json AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT details_json AS value FROM ggr_action_ledger WHERE id = ?",
+    [ledger.id]
+  )
+  const storedEvent = (await store.listEvents({ type: 'risk.detected' })).at(-1)
+  const storedApproval = await store.getApproval('approval-redacted')
+  const storedLedger = (await store.listLedger({ actionType: 'AUTO_CHAT' })).at(-1)
+  const returnedDtos = [event, approval, ledger, storedEvent, storedApproval, storedLedger]
+  assert(!JSON.stringify(storedJson).includes(rawSecret), 'SQLite must not persist raw secrets')
+  assert(!JSON.stringify(returnedDtos).includes(rawSecret), 'safety DTOs must not return raw secrets')
+  assert.deepEqual(storedEvent, event, 'event JSON and timestamp must round-trip')
+  assert.deepEqual(storedApproval, approval, 'approval JSON and timestamps must round-trip')
+  assert.equal(event.createdAt, now.toISOString())
+  assert.equal(approval.createdAt, now.toISOString())
+  assert.equal(approval.context.safe, 'shown')
 } finally {
   await store.close()
   await database.destroy()

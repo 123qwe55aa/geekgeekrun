@@ -1,9 +1,31 @@
+const REDACTED_SECRET = '[redacted]'
+const SENSITIVE_FIELD_PATTERN = /(api[-_]?key|access[-_]?key|private[-_]?key|token|cookie|password|secret|credential|authorization|auth|webhook)/i
+const SENSITIVE_ASSIGNMENT_PATTERN = /((?:api[-_]?key|access[-_]?key|private[-_]?key|token|cookie|password|secret|credential|authorization|webhook)\s*[=:]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)/gi
+
 function toIso(value) {
   return (value instanceof Date ? value : new Date(value)).toISOString()
 }
 
+function redactInlineSecrets(value) {
+  return value.replace(SENSITIVE_ASSIGNMENT_PATTERN, '$1[redacted]')
+}
+
+function redactSecrets(value, key = '') {
+  if (SENSITIVE_FIELD_PATTERN.test(key)) return REDACTED_SECRET
+  if (typeof value === 'string') return redactInlineSecrets(value)
+  if (Array.isArray(value)) return value.map((item) => redactSecrets(item))
+  if (value && typeof value === 'object') return Object.fromEntries(
+    Object.entries(value).map(([name, item]) => [name, redactSecrets(item, name)])
+  )
+  return value
+}
+
+function stringifySafeJson(value) {
+  return JSON.stringify(redactSecrets(value))
+}
+
 function parseJson(value) {
-  return JSON.parse(value)
+  return redactSecrets(JSON.parse(value))
 }
 
 function mapState(row) {
@@ -75,42 +97,46 @@ export function createSafetyStore({ getDataSource, now = () => new Date() } = {}
     return Object.freeze({
       async insertEvent({ scopeKey, type, payload = {}, createdAt = now() }) {
         const createdAtIso = toIso(createdAt)
+        const safePayload = redactSecrets(payload)
         await manager.query(
           'INSERT INTO ggr_safety_event (scope_key, type, payload_json, created_at) VALUES (?, ?, ?, ?)',
-          [scopeKey, type, JSON.stringify(payload), createdAtIso]
+          [scopeKey, type, stringifySafeJson(payload), createdAtIso]
         )
         const [{ id }] = await manager.query('SELECT last_insert_rowid() AS id')
-        return { id, scopeKey, type, payload, createdAt: createdAtIso }
+        return { id, scopeKey, type, payload: safePayload, createdAt: createdAtIso }
       },
       async upsertState({ scopeKey, state, updatedAt = now() }) {
         const updatedAtIso = toIso(updatedAt)
+        const safeState = redactSecrets(state)
         await manager.query(
           `INSERT INTO ggr_safety_state (scope_key, state_json, updated_at) VALUES (?, ?, ?)
            ON CONFLICT(scope_key) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at`,
-          [scopeKey, JSON.stringify(state), updatedAtIso]
+          [scopeKey, stringifySafeJson(state), updatedAtIso]
         )
-        return { scopeKey, state, updatedAt: updatedAtIso }
+        return { scopeKey, state: safeState, updatedAt: updatedAtIso }
       },
       async insertLedger({ scopeKey = null, actionType, actionKey = null, status, details = {}, createdAt = now() }) {
         const createdAtIso = toIso(createdAt)
+        const safeDetails = redactSecrets(details)
         await manager.query(
           'INSERT INTO ggr_action_ledger (scope_key, action_type, action_key, status, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [scopeKey, actionType, actionKey, status, JSON.stringify(details), createdAtIso]
+          [scopeKey, actionType, actionKey, status, stringifySafeJson(details), createdAtIso]
         )
         const [{ id }] = await manager.query('SELECT last_insert_rowid() AS id')
-        return { id, scopeKey, actionType, actionKey, status, details, createdAt: createdAtIso }
+        return { id, scopeKey, actionType, actionKey, status, details: safeDetails, createdAt: createdAtIso }
       },
       async insertApproval({ id, kind, status = 'PENDING', context, contextHash, requestedBy = null, reviewerId = null, reviewerNote = null, reviewedAt = null, expiresAt, grantHash = null, createdAt = now(), updatedAt = now() }) {
         const createdAtIso = toIso(createdAt)
         const updatedAtIso = toIso(updatedAt)
         const reviewedAtIso = reviewedAt == null ? null : toIso(reviewedAt)
         const expiresAtIso = toIso(expiresAt)
+        const safeContext = redactSecrets(context)
         await manager.query(
           `INSERT INTO ggr_approval_request (id, kind, status, context_json, context_hash, requested_by, reviewer_id, reviewer_note, reviewed_at, expires_at, grant_hash, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [id, kind, status, JSON.stringify(context), contextHash, requestedBy, reviewerId, reviewerNote, reviewedAtIso, expiresAtIso, grantHash, createdAtIso, updatedAtIso]
+          [id, kind, status, stringifySafeJson(context), contextHash, requestedBy, reviewerId, reviewerNote, reviewedAtIso, expiresAtIso, grantHash, createdAtIso, updatedAtIso]
         )
-        return { id, kind, status, context, contextHash, requestedBy, reviewerId, reviewerNote, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, grantHash, createdAt: createdAtIso, updatedAt: updatedAtIso }
+        return { id, kind, status, context: safeContext, contextHash, requestedBy, reviewerId, reviewerNote, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, grantHash, createdAt: createdAtIso, updatedAt: updatedAtIso }
       },
       async updateApproval(id, patch) {
         const current = await getApprovalWith(manager, id)
@@ -124,13 +150,14 @@ export function createSafetyStore({ getDataSource, now = () => new Date() } = {}
         const updatedAtIso = toIso(next.updatedAt)
         const reviewedAtIso = next.reviewedAt == null ? null : toIso(next.reviewedAt)
         const expiresAtIso = toIso(next.expiresAt)
+        const safeContext = redactSecrets(next.context)
         await manager.query(
           `UPDATE ggr_approval_request
            SET kind = ?, status = ?, context_json = ?, context_hash = ?, requested_by = ?, reviewer_id = ?, reviewer_note = ?, reviewed_at = ?, expires_at = ?, grant_hash = ?, updated_at = ?
            WHERE id = ?`,
-          [next.kind, next.status, JSON.stringify(next.context), next.contextHash, next.requestedBy, next.reviewerId, next.reviewerNote, reviewedAtIso, expiresAtIso, next.grantHash, updatedAtIso, id]
+          [next.kind, next.status, stringifySafeJson(next.context), next.contextHash, next.requestedBy, next.reviewerId, next.reviewerNote, reviewedAtIso, expiresAtIso, next.grantHash, updatedAtIso, id]
         )
-        return { ...next, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, updatedAt: updatedAtIso }
+        return { ...next, context: safeContext, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, updatedAt: updatedAtIso }
       },
       async setCompanyCooldown({ companyKey, reason, expiresAt, createdAt = now(), updatedAt = now() }) {
         const createdAtIso = toIso(createdAt)

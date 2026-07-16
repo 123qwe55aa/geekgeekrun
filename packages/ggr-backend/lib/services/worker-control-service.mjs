@@ -2,6 +2,7 @@ const CONTROL_TYPES = new Set([
   'agent.state',
   'browse.record',
   'candidate.propose',
+  'approval.await',
   'grant.consume',
   'chat.result',
   'risk.detected',
@@ -14,6 +15,7 @@ const AUTO_CHAT_CONTROL_TYPES = new Set([
   'agent.state',
   'browse.record',
   'candidate.propose',
+  'approval.await',
   'grant.consume',
   'chat.result',
   'risk.detected'
@@ -66,6 +68,7 @@ export function createWorkerControlService({ policy, task, approval, scheduleSto
       case 'agent.state': return policy.status()
       case 'browse.record': return policy.recordBrowse(routedData)
       case 'candidate.propose': return policy.createAutoChatApproval(routedData)
+      case 'approval.await': return policy.waitForAutoChatApproval(routedData)
       case 'grant.consume': return policy.consumeGrant(routedData)
       case 'chat.result': return policy.recordChatResult(routedData)
       case 'risk.detected': {

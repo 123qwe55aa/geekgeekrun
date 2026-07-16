@@ -146,6 +146,8 @@ function grantIdFrom(grant) {
   return separator > 0 ? grant.slice(0, separator) : null
 }
 
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+
 export function createSafetyPolicyService({
   store,
   emit = () => {},
@@ -297,6 +299,33 @@ export function createSafetyPolicyService({
     return { id: approval.id, expiresAt: approval.expiresAt, context: approval.context, grantForWorker: grant }
   }
 
+  async function waitForAutoChatApproval({ id, ...candidate } = {}) {
+    if (!id) throw failure('INVALID_APPROVAL_ID', 'approval id is required')
+    const { context, contextHash } = normalizeCandidate(candidate)
+    while (true) {
+      const approval = await store.getApproval(id)
+      if (!approval || approval.kind !== APPROVAL_KIND) throw failure('APPROVAL_NOT_FOUND', 'approval was not found')
+      if (approval.contextHash !== contextHash || stableJson(approval.context) !== stableJson(context)) {
+        throw failure('APPROVAL_CONTEXT_MISMATCH', 'approval does not match this auto-chat context')
+      }
+      const remaining = asDate(approval.expiresAt).getTime() - timestamp().getTime()
+      if (remaining <= 0) {
+        if (approval.status === 'PENDING' || approval.status === 'APPROVED') {
+          await store.transaction((tx) => tx.updateApprovalIfStatus(id, approval.status, { status: 'EXPIRED', updatedAt: timestamp() }))
+        }
+        pendingWorkerGrants.delete(id)
+        throw failure('APPROVAL_EXPIRED', 'approval has expired')
+      }
+      if (approval.status === 'APPROVED') {
+        const grantForWorker = pendingWorkerGrants.get(id)
+        if (!grantForWorker) throw failure('APPROVAL_GRANT_UNAVAILABLE', 'approval grant is unavailable; create a new approval')
+        return { id, grantForWorker, expiresAt: approval.expiresAt }
+      }
+      if (approval.status !== 'PENDING') throw failure(`APPROVAL_${approval.status}`, `approval is ${approval.status.toLowerCase()}`)
+      await sleep(Math.min(250, remaining))
+    }
+  }
+
   async function approve({ id, actor = {} } = {}) {
     if (!id) throw failure('INVALID_APPROVAL_ID', 'approval id is required')
     const normalizedActor = normalizeApprovalActor(actor)
@@ -440,5 +469,5 @@ export function createSafetyPolicyService({
     return result.state
   }
 
-  return Object.freeze({ status, getConfig, updateConfig, preflightStart, resume, recordBrowse, createAutoChatApproval, approve, reject, consumeGrant, recordChatResult, detectRisk, expireRun, stopForQuota })
+  return Object.freeze({ status, getConfig, updateConfig, preflightStart, resume, recordBrowse, createAutoChatApproval, waitForAutoChatApproval, approve, reject, consumeGrant, recordChatResult, detectRisk, expireRun, stopForQuota })
 }

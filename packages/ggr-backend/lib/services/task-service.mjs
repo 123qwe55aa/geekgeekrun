@@ -8,7 +8,7 @@ const DEFAULT_DIAGNOSTIC_LINE_BYTES = 4096
 const DEFAULT_DIAGNOSTIC_STREAM_BYTES = 64 * 1024
 const SENSITIVE_KEYS = 'apiKey|accessKey|token|password|secret|credential|webhook'
 const ALLOWED_WORKER_EVENTS = new Set(['task.progress', 'approval.required'])
-const WORKER_CONTROL_TYPES = new Set(['agent.state', 'browse.record', 'candidate.propose', 'grant.consume', 'chat.result', 'risk.detected'])
+const WORKER_CONTROL_TYPES = new Set(['agent.state', 'browse.record', 'candidate.propose', 'approval.await', 'grant.consume', 'chat.result', 'risk.detected'])
 const AUTO_CHAT_WORKER_ID = 'geekAutoStartWithBossMain'
 const SENSITIVE_ASSIGNMENT = new RegExp(`(?:["']?)(?:${SENSITIVE_KEYS})(?:["']?)\\s*[=:]\\s*`, 'gi')
 const SENSITIVE_KEY = new RegExp(SENSITIVE_KEYS, 'i')

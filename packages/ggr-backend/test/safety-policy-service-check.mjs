@@ -102,7 +102,14 @@ try {
   )
 
   const approval = await policy.createAutoChatApproval(candidate)
+  const approvalWait = policy.waitForAutoChatApproval({ id: approval.id, ...candidate })
+  await new Promise((resolve) => setImmediate(resolve))
   await policy.approve({ id: approval.id, actor: { client: 'ggr-cli', clientVersion: '0.0.0' } })
+  assert.deepEqual(await approvalWait, {
+    id: approval.id,
+    grantForWorker: approval.grantForWorker,
+    expiresAt: approval.expiresAt
+  }, 'a worker receives its grant only after the matching approval is approved')
   await assert.rejects(
     policy.consumeGrant({ grant: approval.grantForWorker, ...candidate, runRecordId: 100 }),
     (error) => error.code === 'RUN_RECORD_MISMATCH'

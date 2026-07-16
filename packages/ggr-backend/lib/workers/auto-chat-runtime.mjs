@@ -82,10 +82,17 @@ export function applyAutoChatControlHooks({ hooks, controlClient } = {}) {
   hooks.newChatWillStartup.tapPromise('auto-chat-worker-control-approval', async (context) => {
     const candidate = chatContext(context)
     const proposal = await controlClient.request('candidate.propose', candidate)
-    if (typeof proposal?.grantForWorker !== 'string' || !proposal.grantForWorker) {
+    if (typeof proposal?.id !== 'string' || !proposal.id || typeof proposal?.expiresAt !== 'string') {
+      throw controlFailure('INVALID_APPROVAL_GRANT', 'approval proposal did not include an approval identity')
+    }
+    const remaining = new Date(proposal.expiresAt).getTime() - Date.now()
+    const decision = await controlClient.request('approval.await', { id: proposal.id, ...candidate }, {
+      timeoutMs: Math.max(30_000, remaining + 1_000)
+    })
+    if (typeof decision?.grantForWorker !== 'string' || !decision.grantForWorker) {
       throw controlFailure('INVALID_APPROVAL_GRANT', 'approval proposal did not include a worker grant')
     }
-    await controlClient.request('grant.consume', { grant: proposal.grantForWorker, ...candidate })
+    await controlClient.request('grant.consume', { grant: decision.grantForWorker, ...candidate })
     consumed.set(keyFor(candidate), candidate)
   })
   hooks.newChatOutcome.tapPromise('auto-chat-worker-control-outcome', async (context, outcome) => {

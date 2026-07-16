@@ -37,14 +37,14 @@ export function createWorkerControlClient({ send = process.send?.bind(process), 
     rejectAll(unavailable())
   })
 
-  function request(type, data) {
+  function request(type, data, { timeoutMs: requestTimeoutMs = timeoutMs } = {}) {
     if (!connected || typeof send !== 'function') return Promise.reject(unavailable())
     const requestId = `worker-control-${++nextRequestId}`
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (!pending.delete(requestId)) return
         reject(unavailable('worker safety control channel timed out'))
-      }, timeoutMs)
+      }, requestTimeoutMs)
       pending.set(requestId, { resolve, reject, timer })
       try {
         send({ ggrWorkerControl: 1, requestId, type, data })

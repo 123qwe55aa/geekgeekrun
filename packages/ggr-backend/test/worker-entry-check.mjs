@@ -74,7 +74,9 @@ assert.equal(resolveRerunInterval({ MAIN_BOSSGEEKGO_RERUN_INTERVAL: 'not-a-numbe
     controlClient: {
       request: async (type, data) => {
         calls.push({ type, data })
-        return type === 'candidate.propose' ? { grantForWorker: 'grant-1' } : { id: `${type}-1` }
+        if (type === 'candidate.propose') return { id: 'approval-1', expiresAt: new Date(Date.now() + 60_000).toISOString() }
+        if (type === 'approval.await') return { grantForWorker: 'grant-1' }
+        return { id: `${type}-1` }
       }
     }
   })
@@ -82,10 +84,11 @@ assert.equal(resolveRerunInterval({ MAIN_BOSSGEEKGO_RERUN_INTERVAL: 'not-a-numbe
   await hooks.jobDetailIsGetFromRecommendList.promise(job)
   await hooks.newChatWillStartup.promise({ pageUrl: 'https://www.zhipin.com/web/geek/jobs', job, sendControlPresent: true })
   await hooks.newChatOutcome.promise({ pageUrl: 'https://www.zhipin.com/web/geek/jobs', job, sendControlPresent: true }, 'sent')
-  assert.deepEqual(calls.map(({ type }) => type), ['browse.record', 'candidate.propose', 'grant.consume', 'chat.result'])
+  assert.deepEqual(calls.map(({ type }) => type), ['browse.record', 'candidate.propose', 'approval.await', 'grant.consume', 'chat.result'])
   assert.deepEqual(calls[1].data, { jobId: 'job-1', bossId: 'boss-1', companyId: 'company-1', pageUrl: 'https://www.zhipin.com/web/geek/jobs' })
-  assert.deepEqual(calls[2].data, { grant: 'grant-1', jobId: 'job-1', bossId: 'boss-1', companyId: 'company-1', pageUrl: 'https://www.zhipin.com/web/geek/jobs' })
-  assert.deepEqual(calls[3].data, { jobId: 'job-1', bossId: 'boss-1', companyId: 'company-1', pageUrl: 'https://www.zhipin.com/web/geek/jobs', outcome: 'SENT' })
+  assert.deepEqual(calls[2].data, { id: 'approval-1', jobId: 'job-1', bossId: 'boss-1', companyId: 'company-1', pageUrl: 'https://www.zhipin.com/web/geek/jobs' })
+  assert.deepEqual(calls[3].data, { grant: 'grant-1', jobId: 'job-1', bossId: 'boss-1', companyId: 'company-1', pageUrl: 'https://www.zhipin.com/web/geek/jobs' })
+  assert.deepEqual(calls[4].data, { jobId: 'job-1', bossId: 'boss-1', companyId: 'company-1', pageUrl: 'https://www.zhipin.com/web/geek/jobs', outcome: 'SENT' })
 }
 
 {
@@ -100,7 +103,9 @@ assert.equal(resolveRerunInterval({ MAIN_BOSSGEEKGO_RERUN_INTERVAL: 'not-a-numbe
     controlClient: {
       request: async (type, data) => {
         calls.push({ type, data })
-        return type === 'candidate.propose' ? { grantForWorker: 'grant-real-shape' } : { id: `${type}-1` }
+        if (type === 'candidate.propose') return { id: 'approval-real-shape', expiresAt: new Date(Date.now() + 60_000).toISOString() }
+        if (type === 'approval.await') return { grantForWorker: 'grant-real-shape' }
+        return { id: `${type}-1` }
       }
     }
   })
@@ -109,7 +114,7 @@ assert.equal(resolveRerunInterval({ MAIN_BOSSGEEKGO_RERUN_INTERVAL: 'not-a-numbe
     brandComInfo: { encryptBrandId: 'company-real-shape', brandName: 'Acme' }
   }
   await hooks.newChatWillStartup.promise({ pageUrl: 'https://www.zhipin.com/web/geek/jobs', job, sendControlPresent: true })
-  assert.deepEqual(calls.map(({ type }) => type), ['candidate.propose', 'grant.consume'],
+  assert.deepEqual(calls.map(({ type }) => type), ['candidate.propose', 'approval.await', 'grant.consume'],
     'the live recommend-page payload must produce an approval candidate before chat starts')
   assert.deepEqual(calls[0].data, {
     jobId: 'job-real-shape', bossId: 'boss-real-shape', companyId: 'company-real-shape', pageUrl: 'https://www.zhipin.com/web/geek/jobs'

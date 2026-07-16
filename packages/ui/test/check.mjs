@@ -41,6 +41,25 @@ assert.match(settingIpcSource, /workerExitHandlerByMode/, 'worker exit forwardin
 assert.match(settingIpcSource, /WORKER_STOP_TIMEOUT_MS/, 'stopping a worker must have a bounded wait')
 assert.match(settingIpcSource, /requestBackend(?:<[^>]+>)?\('browser\.openBoss'/, 'Boss UI must call the backend browser protocol')
 assert.doesNotMatch(settingIpcSource, /PUPPETEER_EXECUTABLE_PATH|--mode=launchBossSite|childProcess\.spawn|createBrowserCompatibilityApi/, 'Boss UI must not inject an executable or self-spawn a browser child')
+for (const channel of ['get-agent-safety-status', 'list-auto-chat-approvals', 'approve-auto-chat-approval', 'reject-auto-chat-approval', 'resume-agent-safety']) {
+  assert.match(settingIpcSource, new RegExp(`ipcMain\\.handle\\(['\"]${channel}['\"]`), `Electron must expose ${channel} through its main-process IPC facade`)
+}
+for (const method of ['agent.status', 'safety.status', 'approval.list', 'approval.approve', 'approval.reject', 'safety.resume']) {
+  assert.match(settingIpcSource, new RegExp(`requestBackend[\\s\\S]{0,80}['\"]${method.replace('.', '\\.')}['\"]`), `safety IPC facade must delegate ${method} to the backend protocol`)
+}
+assert.match(settingIpcSource, /mainWindow\?\.webContents\.send\('agent-safety-updated'/, 'main process must relay authoritative safety events to the renderer')
+
+const autoChatRunningStatusSource = await read('packages/ui/src/renderer/src/page/GeekAutoStartChatWithBoss/RunningStatus.vue')
+assert.match(autoChatRunningStatusSource, /PAUSED_RISK/, 'auto-chat running page must render the risk-paused state')
+assert.match(autoChatRunningStatusSource, /policyStatus\.reason/, 'auto-chat running page must render the authoritative safety reason')
+assert.match(autoChatRunningStatusSource, /quota/, 'auto-chat running page must render backend-reported quota use')
+assert.match(autoChatRunningStatusSource, /pendingApprovals/, 'auto-chat running page must render pending approval controls')
+assert.match(autoChatRunningStatusSource, /approve-auto-chat-approval/, 'approval controls must use the Electron IPC facade')
+assert.match(autoChatRunningStatusSource, /reject-auto-chat-approval/, 'approval controls must use the Electron IPC facade')
+assert.match(autoChatRunningStatusSource, /resume-agent-safety/, 'risk recovery must be an explicit backend resume operation')
+assert.match(autoChatRunningStatusSource, /startDisabled[\s\S]{0,240}PAUSED_RISK/, 'start must be disabled for risk pauses')
+assert.match(autoChatRunningStatusSource, /startDisabled[\s\S]{0,240}PAUSED_QUOTA/, 'start must be disabled for quota pauses')
+assert.match(autoChatRunningStatusSource, /agent-safety-updated/, 'running page must subscribe to the main-process backend event relay')
 
 const cookieAssistantSource = await read('packages/ui/src/main/window/cookieAssistantWindow.ts')
 assert.match(cookieAssistantSource, /requestBackend<\{ taskId: string \}>\('browser\.openLogin'\)/, 'cookie UI must call the backend browser protocol')

@@ -80,8 +80,13 @@ createMcpServer({
     description: 'test protocol error mapping',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
-      const error = new Error('backend unavailable')
-      error.code = 'CONNECTION_CLOSED'
+      const error = new Error('backend unavailable: token=super-secret')
+      error.code = 'PAUSED_RISK'
+      error.data = {
+        cooldownUntil: '2026-07-17T00:00:00.000Z',
+        accessToken: 'super-secret',
+        nested: { apiKey: 'also-secret', state: 'PAUSED_RISK' }
+      }
       throw error
     }
   }]
@@ -96,6 +101,17 @@ errorInput.write(`${JSON.stringify({
 const errorResponse = await errorResponsePromise
 assert.equal(errorResponse.result.isError, true)
 assert.match(errorResponse.result.content[0].text, /backend unavailable/)
+assert.doesNotMatch(errorResponse.result.content[0].text, /super-secret/)
+assert.deepEqual(errorResponse.result.structuredContent, {
+  error: {
+    code: 'PAUSED_RISK',
+    data: {
+      cooldownUntil: '2026-07-17T00:00:00.000Z',
+      accessToken: '[redacted]',
+      nested: { apiKey: '[redacted]', state: 'PAUSED_RISK' }
+    }
+  }
+})
 
 const serverSource = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
 for (const toolName of [

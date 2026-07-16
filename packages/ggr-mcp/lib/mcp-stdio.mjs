@@ -6,6 +6,9 @@ const ERROR_CODE = {
   METHOD_NOT_FOUND: -32601,
 }
 
+const SENSITIVE_FIELD_PATTERN = /(apiKey|accessKey|key|token|password|secret|credential|webhook|cookie|authorization|session)/i
+const SENSITIVE_ASSIGNMENT_PATTERN = /((?:apiKey|accessKey|key|token|password|secret|credential|webhook|cookie|authorization|session)\s*[=:]\s*)[^\s,;]+/gi
+
 function rpcError (id, code, message) {
   return {
     jsonrpc: JSON_RPC_VERSION,
@@ -37,15 +40,35 @@ function asToolContent (value) {
   }
 }
 
+function redactText (value) {
+  return String(value).replace(SENSITIVE_ASSIGNMENT_PATTERN, '$1[redacted]')
+}
+
+function redactErrorData (value, key = '', seen = new WeakSet()) {
+  if (SENSITIVE_FIELD_PATTERN.test(key)) return '[redacted]'
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return typeof value === 'string' ? redactText(value) : value
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (Array.isArray(value)) return value.map((item) => redactErrorData(item, '', seen))
+  if (!value || typeof value !== 'object') return '[unsupported]'
+  if (seen.has(value)) return '[circular]'
+  seen.add(value)
+  return Object.fromEntries(Object.entries(value).map(([entryKey, entryValue]) => [entryKey, redactErrorData(entryValue, entryKey, seen)]))
+}
+
 function asToolError (error) {
+  const message = redactText(error instanceof Error ? error.message : String(error))
+  const details = {}
+  if (typeof error?.code === 'string' && error.code) details.code = error.code
+  if (error?.data !== undefined) details.data = redactErrorData(error.data)
   return {
     isError: true,
     content: [
       {
         type: 'text',
-        text: error instanceof Error ? error.message : String(error),
+        text: message,
       },
     ],
+    ...(Object.keys(details).length ? { structuredContent: { error: details } } : {}),
   }
 }
 

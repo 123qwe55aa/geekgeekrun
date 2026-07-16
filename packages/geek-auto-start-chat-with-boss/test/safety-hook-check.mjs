@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { runApprovedNewChatAttempt } from '../index.mjs'
 
@@ -67,6 +70,12 @@ const job = { jobInfo: { encryptId: 'job-1', encryptUserId: 'boss-1' }, brandNam
     handleAddFriendResponse: async () => {}
   }), /detached/)
   assert.deepEqual(outcomes, ['failedPreAction'])
+}
+
+{
+  const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const source = await fs.readFile(path.join(packageRoot, 'index.mjs'), 'utf8')
+  assert(!source.includes('hooks.newChatWillStartup?.promise(targetJobData)'), 'the raw job hook must not bypass the context-gated send helper')
 }
 
 console.log('auto-chat safety hook check passed')

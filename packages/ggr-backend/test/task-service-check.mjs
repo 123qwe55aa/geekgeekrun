@@ -7,6 +7,7 @@ import path from 'node:path'
 import { createApprovalService } from '../lib/services/approval-service.mjs'
 import { createSafetyPolicyService } from '../lib/services/safety-policy-service.mjs'
 import { createTaskService } from '../lib/services/task-service.mjs'
+import { createWorkerControlService } from '../lib/services/worker-control-service.mjs'
 import { createWorkerReporter } from '../lib/workers/worker-reporter.mjs'
 
 function fakeChild(pid, { exitOnSignal = true } = {}) {
@@ -146,6 +147,40 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
   assert.deepEqual(child.killSignals, ['SIGTERM'])
   const exit = events.find(({ event }) => event === 'task.exited')
   assert.equal(exit?.data.restartSuppressed, true, 'policy stops must be visible as intentional restart suppression')
+}
+
+{
+  const child = fakeChild(96, { exitOnSignal: false })
+  let control
+  const service = createTaskService({
+    spawnProcess: () => child,
+    workerEntries: { geekAutoStartWithBossMain: '/tmp/auto-chat.mjs' },
+    workerControl: { handle: (message) => control.handle(message) },
+    stopTimeoutMs: 50
+  })
+  control = createWorkerControlService({
+    policy: { detectRisk: async () => ({ status: 'PAUSED_RISK' }) },
+    task: service
+  })
+  await service.start({ workerId: 'geekAutoStartWithBossMain' })
+  const reply = new Promise((resolve) => {
+    child.send = (message) => {
+      child.sent.push(message)
+      queueMicrotask(() => child.emit('exit', null, 'SIGTERM'))
+      resolve(message)
+      return true
+    }
+  })
+  child.emit('message', { ggrWorkerControl: 1, requestId: 'risk-ack-1', type: 'risk.detected', data: { statusCode: 403 } })
+  assert.deepEqual(await Promise.race([
+    reply,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('risk reply waited for worker exit')), 25))
+  ]), {
+    ggrWorkerControl: 1,
+    requestId: 'risk-ack-1',
+    ok: true,
+    data: { status: 'PAUSED_RISK' }
+  }, 'risk persistence must acknowledge IPC before the worker is stopped')
 }
 
 {

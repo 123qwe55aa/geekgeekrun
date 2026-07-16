@@ -22,9 +22,10 @@ function derivedData(data, workerId, runRecordId) {
   return { ...data, workerId, runRecordId }
 }
 
-export function createWorkerControlService({ policy, task } = {}) {
+export function createWorkerControlService({ policy, task, scheduleStop = setImmediate } = {}) {
   if (!policy || typeof policy !== 'object') throw new TypeError('policy is required')
   if (!task || typeof task.stop !== 'function') throw new TypeError('task.stop is required')
+  if (typeof scheduleStop !== 'function') throw new TypeError('scheduleStop must be a function')
 
   async function handle(message = {}) {
     const { workerId, runRecordId, type, data } = message
@@ -39,7 +40,7 @@ export function createWorkerControlService({ policy, task } = {}) {
       case 'chat.result': return policy.recordChatResult(routedData)
       case 'risk.detected': {
         const state = await policy.detectRisk(routedData)
-        await task.stop({ workerId, policyStop: true })
+        scheduleStop(() => { void Promise.resolve().then(() => task.stop({ workerId, policyStop: true })).catch(() => {}) })
         return state
       }
     }

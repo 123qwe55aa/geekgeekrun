@@ -29,6 +29,14 @@ function controlFailure(code, message) {
   return Object.assign(new Error(message), { code })
 }
 
+function policyStop(error, risk) {
+  const reason = risk?.reason ?? (error instanceof Error ? error.message : String(error ?? 'auto-chat safety policy stopped'))
+  return Object.assign(new Error(`auto-chat stopped by safety policy: ${reason}`), {
+    code: 'SAFETY_POLICY_STOP',
+    cause: error
+  })
+}
+
 function valueAt(source, paths) {
   for (const path of paths) {
     let value = source
@@ -101,19 +109,36 @@ export function classifyAutoChatRisk(error) {
   return null
 }
 
+async function reportAutoChatRisk({ error, controlClient }) {
+  const risk = classifyAutoChatRisk(error)
+  if (!risk) throw error
+  try {
+    await controlClient.request('risk.detected', risk)
+  } catch (controlError) {
+    throw policyStop(controlError, risk)
+  }
+  throw policyStop(error, risk)
+}
+
+export async function assertAutoChatStartupSafety({ cookies, controlClient } = {}) {
+  if (cookies?.length) return
+  await reportAutoChatRisk({
+    error: controlFailure('COOKIE_INVALID', 'Boss cookies are required'),
+    controlClient
+  })
+}
+
 export async function runAutoChatMainLoop({ hooks, mainLoopImpl = mainLoop, controlClient } = {}) {
   try {
     return await mainLoopImpl(hooks)
   } catch (error) {
-    const risk = classifyAutoChatRisk(error)
-    if (!risk) throw error
-    try { await controlClient.request('risk.detected', risk) } catch {}
-    throw Object.assign(new Error(`auto-chat stopped by safety policy: ${risk.reason}`), { code: 'SAFETY_POLICY_STOP', cause: error })
+    if (error?.code === 'SAFETY_CHANNEL_UNAVAILABLE') throw policyStop(error)
+    await reportAutoChatRisk({ error, controlClient })
   }
 }
 
 export async function createAutoChatRuntime({ rerunInterval = resolveRerunInterval(), controlClient = createWorkerControlClient() } = {}) {
-  if (!readStorageFile('boss-cookies.json')?.length) throw Object.assign(new Error('Boss cookies are required'), { code: 'COOKIE_INVALID' })
+  await assertAutoChatStartupSafety({ cookies: readStorageFile('boss-cookies.json'), controlClient })
   const hooks = hooksForRuntime()
   const dingTalkToken = readConfigFile('dingtalk.json').groupRobotAccessToken
   new DingtalkPlugin(dingTalkToken).apply(hooks)

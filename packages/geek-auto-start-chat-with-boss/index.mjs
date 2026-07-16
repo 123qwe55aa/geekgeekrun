@@ -1566,7 +1566,6 @@ async function toRecommendPage (hooks) {
           await sleepWithRandomDelay(1000)
           const startChatButtonProxy = await findStartChatButton(page)
           if (!startChatButtonProxy) throw new Error('START_CHAT_BUTTON_NOT_FOUND')
-          await hooks.newChatWillStartup?.promise(targetJobData)
           await sleep(500)
 
           const waitAddFriendResponse = async () => {

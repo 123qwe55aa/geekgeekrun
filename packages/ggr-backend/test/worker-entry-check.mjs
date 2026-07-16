@@ -8,7 +8,7 @@ import { runAutoChat } from '../lib/workers/auto-chat.mjs'
 import { runReadNoReply } from '../lib/workers/read-no-reply.mjs'
 import { createWorkerReporter } from '../lib/workers/worker-reporter.mjs'
 import { resolveRerunInterval } from '../lib/workers/restart-policy.mjs'
-import { applyAutoChatControlHooks, runAutoChatMainLoop } from '../lib/workers/auto-chat-runtime.mjs'
+import { applyAutoChatControlHooks, assertAutoChatStartupSafety, runAutoChatMainLoop } from '../lib/workers/auto-chat-runtime.mjs'
 
 async function checkWorker(run, workerId) {
   const events = []
@@ -84,6 +84,27 @@ assert.equal(resolveRerunInterval({ MAIN_BOSSGEEKGO_RERUN_INTERVAL: 'not-a-numbe
     controlClient: { request: async (type, data) => { calls.push({ type, data }) } }
   }), { code: 'SAFETY_POLICY_STOP' })
   assert.deepEqual(calls, [{ type: 'risk.detected', data: { statusCode: 403, code: 'ACCESS_IS_DENIED', reason: 'ACCESS_IS_DENIED at https://www.zhipin.com/web/common/403.html' } }])
+}
+
+{
+  await assert.rejects(runAutoChatMainLoop({
+    hooks: {},
+    mainLoopImpl: async () => { throw Object.assign(new Error('worker safety control channel is unavailable'), { code: 'SAFETY_CHANNEL_UNAVAILABLE' }) },
+    controlClient: { request: async () => assert.fail('an unavailable control channel cannot report another control request') }
+  }), { code: 'SAFETY_POLICY_STOP' })
+}
+
+{
+  const calls = []
+  await assert.rejects(assertAutoChatStartupSafety({
+    cookies: [],
+    controlClient: { request: async (type, data) => { calls.push({ type, data }); return { status: 'PAUSED_RISK' } }
+    }
+  }), { code: 'SAFETY_POLICY_STOP' })
+  assert.deepEqual(calls, [{
+    type: 'risk.detected',
+    data: { code: 'COOKIE_INVALID', reason: 'Boss cookies are required' }
+  }], 'missing cookies must be persisted as policy risk before the worker exits')
 }
 
 const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')

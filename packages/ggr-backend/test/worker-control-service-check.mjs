@@ -28,7 +28,26 @@ for (const [, data] of calls) {
   if (data.workerId !== undefined) assert.equal(data.workerId, 'auto', 'worker identity must be derived by the backend')
   if (data.runRecordId !== undefined) assert.equal(data.runRecordId, 7, 'run identity must be derived by the backend')
 }
+await new Promise((resolve) => setImmediate(resolve))
 assert.deepEqual(stops, [{ workerId: 'auto', policyStop: true }], 'risk detection must intentionally stop its originating worker')
 await assert.rejects(control.handle({ workerId: 'auto', runRecordId: 7, type: 'unknown', data: {} }), { code: 'INVALID_WORKER_CONTROL_TYPE' })
+
+{
+  let resolveStop
+  let stopStarted = false
+  const deferredStop = new Promise((resolve) => { resolveStop = resolve })
+  const riskControl = createWorkerControlService({
+    policy: { detectRisk: async () => ({ status: 'PAUSED_RISK' }) },
+    task: { stop: async () => { stopStarted = true; await deferredStop } }
+  })
+  const reply = await Promise.race([
+    riskControl.handle({ workerId: 'auto', runRecordId: 8, type: 'risk.detected', data: { statusCode: 403 } }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('risk reply waited for task termination')), 25))
+  ])
+  assert.deepEqual(reply, { status: 'PAUSED_RISK' }, 'risk persistence must acknowledge the worker before stopping it')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(stopStarted, true, 'risk acknowledgement must schedule a policy stop')
+  resolveStop()
+}
 
 console.log('ggr backend worker control service check passed')

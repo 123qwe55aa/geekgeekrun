@@ -1,6 +1,6 @@
 const REDACTED_SECRET = '[redacted]'
 const SENSITIVE_FIELD_PATTERN = /(api[-_]?key|access[-_]?key|private[-_]?key|token|cookie|password|secret|credential|authorization|auth|webhook)/i
-const SENSITIVE_ASSIGNMENT_PATTERN = /((?:api[-_]?key|access[-_]?key|private[-_]?key|token|cookie|password|secret|credential|authorization|webhook)\s*[=:]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)/gi
+const SENSITIVE_ASSIGNMENT_PATTERN = /((?:api[-_]?key|access[-_]?key|private[-_]?key|token|cookie|password|secret|credential|authorization|webhook)\s*[=:]\s*)(?:\[redacted\]|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|Bearer\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)|[^\s,;}\]]+)/gi
 
 function toIso(value) {
   return (value instanceof Date ? value : new Date(value)).toISOString()
@@ -51,7 +51,7 @@ function mapApproval(row) {
     contextHash: row.context_hash,
     requestedBy: row.requested_by,
     reviewerId: row.reviewer_id,
-    reviewerNote: row.reviewer_note,
+    reviewerNote: redactSecrets(row.reviewer_note),
     reviewedAt: row.reviewed_at,
     expiresAt: row.expires_at,
     grantHash: row.grant_hash,
@@ -131,12 +131,13 @@ export function createSafetyStore({ getDataSource, now = () => new Date() } = {}
         const reviewedAtIso = reviewedAt == null ? null : toIso(reviewedAt)
         const expiresAtIso = toIso(expiresAt)
         const safeContext = redactSecrets(context)
+        const safeReviewerNote = redactSecrets(reviewerNote)
         await manager.query(
           `INSERT INTO ggr_approval_request (id, kind, status, context_json, context_hash, requested_by, reviewer_id, reviewer_note, reviewed_at, expires_at, grant_hash, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [id, kind, status, stringifySafeJson(context), contextHash, requestedBy, reviewerId, reviewerNote, reviewedAtIso, expiresAtIso, grantHash, createdAtIso, updatedAtIso]
+          [id, kind, status, stringifySafeJson(context), contextHash, requestedBy, reviewerId, safeReviewerNote, reviewedAtIso, expiresAtIso, grantHash, createdAtIso, updatedAtIso]
         )
-        return { id, kind, status, context: safeContext, contextHash, requestedBy, reviewerId, reviewerNote, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, grantHash, createdAt: createdAtIso, updatedAt: updatedAtIso }
+        return { id, kind, status, context: safeContext, contextHash, requestedBy, reviewerId, reviewerNote: safeReviewerNote, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, grantHash, createdAt: createdAtIso, updatedAt: updatedAtIso }
       },
       async updateApproval(id, patch) {
         const current = await getApprovalWith(manager, id)
@@ -151,24 +152,26 @@ export function createSafetyStore({ getDataSource, now = () => new Date() } = {}
         const reviewedAtIso = next.reviewedAt == null ? null : toIso(next.reviewedAt)
         const expiresAtIso = toIso(next.expiresAt)
         const safeContext = redactSecrets(next.context)
+        const safeReviewerNote = redactSecrets(next.reviewerNote)
         await manager.query(
           `UPDATE ggr_approval_request
            SET kind = ?, status = ?, context_json = ?, context_hash = ?, requested_by = ?, reviewer_id = ?, reviewer_note = ?, reviewed_at = ?, expires_at = ?, grant_hash = ?, updated_at = ?
            WHERE id = ?`,
-          [next.kind, next.status, stringifySafeJson(next.context), next.contextHash, next.requestedBy, next.reviewerId, next.reviewerNote, reviewedAtIso, expiresAtIso, next.grantHash, updatedAtIso, id]
+          [next.kind, next.status, stringifySafeJson(next.context), next.contextHash, next.requestedBy, next.reviewerId, safeReviewerNote, reviewedAtIso, expiresAtIso, next.grantHash, updatedAtIso, id]
         )
-        return { ...next, context: safeContext, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, updatedAt: updatedAtIso }
+        return { ...next, context: safeContext, reviewerNote: safeReviewerNote, reviewedAt: reviewedAtIso, expiresAt: expiresAtIso, updatedAt: updatedAtIso }
       },
       async setCompanyCooldown({ companyKey, reason, expiresAt, createdAt = now(), updatedAt = now() }) {
         const createdAtIso = toIso(createdAt)
         const updatedAtIso = toIso(updatedAt)
         const expiresAtIso = toIso(expiresAt)
+        const safeReason = redactSecrets(reason)
         await manager.query(
           `INSERT INTO ggr_company_cooldown (company_key, reason, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(company_key) DO UPDATE SET reason = excluded.reason, expires_at = excluded.expires_at, updated_at = excluded.updated_at`,
-          [companyKey, reason, expiresAtIso, createdAtIso, updatedAtIso]
+          [companyKey, safeReason, expiresAtIso, createdAtIso, updatedAtIso]
         )
-        return { companyKey, reason, expiresAt: expiresAtIso, createdAt: createdAtIso, updatedAt: updatedAtIso }
+        return { companyKey, reason: safeReason, expiresAt: expiresAtIso, createdAt: createdAtIso, updatedAt: updatedAtIso }
       }
     })
   }

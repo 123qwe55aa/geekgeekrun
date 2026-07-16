@@ -50,6 +50,7 @@ try {
   }), /UNIQUE constraint failed/)
 
   const rawSecret = 'never-store-this-cookie-token'
+  const freeformSecret = `token=${rawSecret}; credential: ${rawSecret}; authorization=Bearer ${rawSecret}`
   const event = await store.appendEvent({
     scopeKey: 'auto-chat',
     type: 'risk.detected',
@@ -60,6 +61,21 @@ try {
     kind: 'AUTO_CHAT',
     context: { safe: 'shown', sessionCookie: rawSecret },
     contextHash: 'context-redacted',
+    reviewerNote: `Inserted approval note: ${freeformSecret}`,
+    expiresAt: new Date('2026-07-17T00:00:00.000Z')
+  }))
+  const state = await store.transaction((tx) => tx.upsertState({
+    scopeKey: 'redacted-state',
+    state: { safe: 'shown', note: `State note: ${freeformSecret}` }
+  }))
+  const updatedApproval = await store.updateApproval('approval-redacted', {
+    reviewerId: 'reviewer-one',
+    reviewerNote: `Updated approval note: ${freeformSecret}`,
+    reviewedAt: now
+  })
+  const cooldown = await store.transaction((tx) => tx.setCompanyCooldown({
+    companyKey: 'company-redacted',
+    reason: `Cooldown reason: ${freeformSecret}`,
     expiresAt: new Date('2026-07-17T00:00:00.000Z')
   }))
   const ledger = await store.transaction((tx) => tx.insertLedger({
@@ -67,18 +83,20 @@ try {
     status: 'BLOCKED',
     details: { safe: 'shown', authorization: `Bearer ${rawSecret}` }
   }))
-  const storedJson = await database.query(
-    "SELECT payload_json AS value FROM ggr_safety_event WHERE type = 'risk.detected' UNION ALL SELECT context_json AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT details_json AS value FROM ggr_action_ledger WHERE id = ?",
+  const storedValues = await database.query(
+    "SELECT payload_json AS value FROM ggr_safety_event WHERE type = 'risk.detected' UNION ALL SELECT context_json AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT reviewer_note AS value FROM ggr_approval_request WHERE id = 'approval-redacted' UNION ALL SELECT state_json AS value FROM ggr_safety_state WHERE scope_key = 'redacted-state' UNION ALL SELECT reason AS value FROM ggr_company_cooldown WHERE company_key = 'company-redacted' UNION ALL SELECT details_json AS value FROM ggr_action_ledger WHERE id = ?",
     [ledger.id]
   )
   const storedEvent = (await store.listEvents({ type: 'risk.detected' })).at(-1)
   const storedApproval = await store.getApproval('approval-redacted')
+  const storedState = await store.readState('redacted-state')
   const storedLedger = (await store.listLedger({ actionType: 'AUTO_CHAT' })).at(-1)
-  const returnedDtos = [event, approval, ledger, storedEvent, storedApproval, storedLedger]
-  assert(!JSON.stringify(storedJson).includes(rawSecret), 'SQLite must not persist raw secrets')
+  const returnedDtos = [event, approval, state, updatedApproval, cooldown, ledger, storedEvent, storedApproval, storedState, storedLedger]
+  assert(!JSON.stringify(storedValues).includes(rawSecret), 'SQLite must not persist raw secrets')
   assert(!JSON.stringify(returnedDtos).includes(rawSecret), 'safety DTOs must not return raw secrets')
   assert.deepEqual(storedEvent, event, 'event JSON and timestamp must round-trip')
-  assert.deepEqual(storedApproval, approval, 'approval JSON and timestamps must round-trip')
+  assert.deepEqual(storedApproval, updatedApproval, 'approval JSON and timestamps must round-trip')
+  assert.deepEqual(storedState, state, 'state JSON and timestamp must round-trip')
   assert.equal(event.createdAt, now.toISOString())
   assert.equal(approval.createdAt, now.toISOString())
   assert.equal(approval.context.safe, 'shown')

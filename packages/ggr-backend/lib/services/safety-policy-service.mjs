@@ -178,7 +178,9 @@ export function createSafetyPolicyService({
     const at = timestamp()
     const [state, ledger] = await Promise.all([
       store.readState(AUTO_CHAT_SCOPE),
-      store.listLedger({ scopeKey: AUTO_CHAT_SCOPE })
+      typeof store.listLedger === 'function'
+        ? Promise.resolve(store.listLedger({ scopeKey: AUTO_CHAT_SCOPE })).catch(() => [])
+        : Promise.resolve([])
     ])
     return { ...normalizeState(state), quota: quotaUsage(ledger, safetyConfig, at) }
   }

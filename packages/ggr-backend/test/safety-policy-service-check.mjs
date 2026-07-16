@@ -38,6 +38,25 @@ function advance(milliseconds) {
   currentTime = new Date(currentTime.getTime() + milliseconds)
 }
 
+{
+  // Existing task admission integrations only require transaction/readState.
+  // Status must remain usable for those stores while exposing a safe, empty
+  // quota view instead of assuming the newer ledger capability is present.
+  const minimalPolicy = createSafetyPolicyService({
+    store: {
+      transaction: async () => { throw new Error('not used by status') },
+      readState: async () => null
+    },
+    now: () => new Date('2026-07-16T00:00:00.000Z'),
+    config: { browsePerDay: 7, chatPerHour: 3, chatPerDay: 9 }
+  })
+  assert.deepEqual((await minimalPolicy.status()).quota, {
+    browsePerDay: { used: 0, limit: 7, period: 'calendar_day', dayKey: '2026-07-16' },
+    chatPerHour: { used: 0, limit: 3, period: 'rolling_hour' },
+    chatPerDay: { used: 0, limit: 9, period: 'calendar_day', dayKey: '2026-07-16' }
+  })
+}
+
 try {
   await store.initialize()
 

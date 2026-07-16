@@ -8,6 +8,7 @@ const ERROR_CODE = {
 
 const SENSITIVE_FIELD_PATTERN = /(apiKey|accessKey|key|token|password|secret|credential|webhook|cookie|authorization|session)/i
 const SENSITIVE_ASSIGNMENT_PATTERN = /((?:apiKey|accessKey|key|token|password|secret|credential|webhook|cookie|authorization|session)\s*[=:]\s*)[^\s,;]+/gi
+const AUTHORIZATION_HEADER_PATTERN = /(\bauthorization\s*:\s*)[^\r\n,;]+/gi
 
 function rpcError (id, code, message) {
   return {
@@ -41,7 +42,9 @@ function asToolContent (value) {
 }
 
 function redactText (value) {
-  return String(value).replace(SENSITIVE_ASSIGNMENT_PATTERN, '$1[redacted]')
+  return String(value)
+    .replace(AUTHORIZATION_HEADER_PATTERN, '$1[redacted]')
+    .replace(SENSITIVE_ASSIGNMENT_PATTERN, '$1[redacted]')
 }
 
 function redactErrorData (value, key = '', seen = new WeakSet()) {

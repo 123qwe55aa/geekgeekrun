@@ -76,11 +76,11 @@ createMcpServer({
   name: 'ggr-mcp-error-test',
   version: '0.1.0',
   tools: [{
-    name: 'backend_error',
+    name: 'boss_get_safety_status',
     description: 'test protocol error mapping',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
-      const error = new Error('backend unavailable: token=super-secret')
+      const error = new Error('backend unavailable: Authorization: Bearer bearer-secret; retry after cooldown')
       error.code = 'PAUSED_RISK'
       error.data = {
         cooldownUntil: '2026-07-17T00:00:00.000Z',
@@ -96,12 +96,12 @@ errorInput.write(`${JSON.stringify({
   jsonrpc: '2.0',
   id: 2,
   method: 'tools/call',
-  params: { name: 'backend_error', arguments: {} }
+  params: { name: 'boss_get_safety_status', arguments: {} }
 })}\n`)
 const errorResponse = await errorResponsePromise
 assert.equal(errorResponse.result.isError, true)
-assert.match(errorResponse.result.content[0].text, /backend unavailable/)
-assert.doesNotMatch(errorResponse.result.content[0].text, /super-secret/)
+assert.equal(errorResponse.result.content[0].text, 'backend unavailable: Authorization: [redacted]; retry after cooldown')
+assert.doesNotMatch(JSON.stringify(errorResponse), /bearer-secret|super-secret|also-secret/)
 assert.deepEqual(errorResponse.result.structuredContent, {
   error: {
     code: 'PAUSED_RISK',

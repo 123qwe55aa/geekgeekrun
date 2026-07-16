@@ -11,6 +11,8 @@ import { createConfigService } from './lib/services/config-service.mjs'
 import { createApprovalService } from './lib/services/approval-service.mjs'
 import { createTaskService } from './lib/services/task-service.mjs'
 import { createRecordsService } from './lib/services/records-service.mjs'
+import { createSafetyStore } from './lib/services/safety-store.mjs'
+import { createSafetyPolicyService } from './lib/services/safety-policy-service.mjs'
 import { createBrowserService } from './lib/services/browser-service.mjs'
 import { createBackendBrowserRuntime } from './lib/services/browser/runtime.mjs'
 import { createBrowserRecords } from './lib/services/browser/records.mjs'
@@ -41,6 +43,13 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
     clock
   })
   const records = services.records ?? createRecordsService({ databaseFile: runtimePaths.databaseFile })
+  const safetyStore = services.safetyStore ?? createSafetyStore({ getDataSource: records.getDataSource, now: clock ? () => clock() : undefined })
+  const policy = services.policy ?? createSafetyPolicyService({
+    store: safetyStore,
+    emit,
+    accountHealthCheck: async () => (await records.accountStatus()).authenticated === true,
+    now: clock ? () => clock() : undefined
+  })
   const llm = services.llm ?? { request: requestNewMessageContent }
   const browser = services.browser ?? (() => {
     const browserRecords = services.browserRecords ?? createBrowserRecords({ getDataSource: records.getDataSource })
@@ -50,7 +59,7 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
     .register(METHODS.SYSTEM_HANDSHAKE, (params) => {
       try { assertHandshake(params) } catch (error) { throw Object.assign(error, { code: 'INVALID_PARAMS' }) }
       if (params.protocolVersion !== PROTOCOL_VERSION) throw Object.assign(new Error(`Protocol version ${params.protocolVersion} is not supported`), { code: 'PROTOCOL_INCOMPATIBLE' })
-      return { protocolMin: PROTOCOL_VERSION, protocolMax: PROTOCOL_VERSION, version }
+      return { protocolMin: PROTOCOL_VERSION, protocolMax: PROTOCOL_VERSION, version, capabilities: ['safety-policy-v1'] }
     })
     .register(METHODS.SYSTEM_HEALTH, () => ({ ready: true, version, protocolVersion: PROTOCOL_VERSION }))
     .register(METHODS.CONFIG_READ, (params) => config.read(params))
@@ -103,7 +112,13 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
       return browser.cancel(params.taskId)
     })
 
-  registerServiceHandlers(router, { methods: METHODS, task, approval })
+  registerServiceHandlers(router, {
+    methods: METHODS,
+    task,
+    approval,
+    policy,
+    getSafetyApproval: (id) => safetyStore.getApproval(id)
+  })
 
   for (const [method, handler] of Object.entries(services.handlers ?? {})) router.register(method, handler)
   rpc = createRpcServer({ socketPath, router, verifyPeer, logger })
@@ -114,6 +129,7 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
       if (started) return
       if (closed) throw new Error('Backend server is closed')
       await migrateLegacyLayout(runtimePaths)
+      await safetyStore.initialize?.()
       await rpc.start()
       started = true
     },
@@ -124,6 +140,7 @@ export async function createBackendServer({ socketPath, version, runtimePaths, s
       const cleanups = [
         () => task.stopAll?.(),
         () => browser.close?.(),
+        () => safetyStore.close?.(),
         () => records.close?.(),
         () => rpc.stop(),
         () => config.close?.(),

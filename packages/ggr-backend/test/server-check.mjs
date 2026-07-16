@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs/promises'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -10,6 +11,33 @@ import { createBackendServer } from '../server.mjs'
 import { createRuntimePaths } from '../lib/runtime-paths.mjs'
 import { createConfigService } from '../lib/services/config-service.mjs'
 import { createLogger } from '../lib/logger.mjs'
+
+async function rawSession(socketPath, requests) {
+  const socket = net.createConnection(socketPath)
+  return new Promise((resolve, reject) => {
+    let buffer = ''
+    const replies = []
+    socket.setEncoding('utf8')
+    socket.once('error', reject)
+    socket.on('data', (chunk) => {
+      buffer += chunk
+      let newline
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline)
+        buffer = buffer.slice(newline + 1)
+        if (!line) continue
+        replies.push(JSON.parse(line))
+        if (replies.length === requests.length) {
+          socket.end()
+          resolve(replies)
+        }
+      }
+    })
+    socket.on('connect', () => {
+      for (const request of requests) socket.write(`${JSON.stringify(request)}\n`)
+    })
+  })
+}
 
 const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ggr-backend-'))
 const runtimePaths = createRuntimePaths(tempHome)
@@ -279,7 +307,7 @@ try {
       task: { list: () => [], stopAll: async () => { calls.push('task') } },
       approval: {},
       browser: { close: async () => { calls.push('browser'); throw new Error('browser close failed') } },
-      records: { close: async () => { calls.push('records') } },
+      records: { accountStatus: async () => ({ authenticated: false }), getDataSource: async () => {}, close: async () => { calls.push('records') } },
       config: { close: async () => { calls.push('config') } },
       logger: { write: async () => {}, close: async () => { calls.push('logger') } }
     }
@@ -307,7 +335,7 @@ try {
       task: { list: () => [], stopAll: async () => { calls.push('task') } },
       approval: {},
       browser: { close: async () => { calls.push('browser'); throw new Error('browser close failed') } },
-      records: { close: async () => { calls.push('records'); throw new Error('records close failed') } },
+      records: { accountStatus: async () => ({ authenticated: false }), getDataSource: async () => {}, close: async () => { calls.push('records'); throw new Error('records close failed') } },
       config: { close: async () => { calls.push('config') } },
       logger: { write: async () => {}, close: async () => { calls.push('logger') } }
     }
@@ -344,6 +372,70 @@ try {
   } finally {
     await delayedBackend.stop()
     await fs.rm(delayedHome, { recursive: true, force: true })
+  }
+}
+
+{
+  const policyHome = await fs.mkdtemp('/tmp/ggr-safety-rpc-')
+  const paths = createRuntimePaths(policyHome)
+  const reviewers = []
+  const policy = {
+    async status() { return { status: 'PAUSED_RISK' } },
+    getConfig() { return { chatPerHour: 5 } },
+    updateConfig(patch) { return patch },
+    async resume() {
+      throw Object.assign(new Error('auto-chat risk cooldown is active'), {
+        code: 'RISK_COOLDOWN_ACTIVE', data: { pausedUntil: '2026-07-17T00:00:00.000Z' }
+      })
+    },
+    async preflightStart() { return { status: 'RUNNING' } },
+    async approve({ id, actor }) { reviewers.push(actor); return { id, status: 'APPROVED' } },
+    async reject({ id, actor, reason }) { reviewers.push(actor); return { id, status: 'REJECTED', reason } }
+  }
+  const backend = await createBackendServer({
+    socketPath: paths.backendSocket,
+    version: '0.1.0',
+    runtimePaths: paths,
+    services: {
+      task: { list: () => [], start: async () => ({ workerId: 'auto', runRecordId: 1 }), stop: async () => {}, setUpdateDrain: () => {} },
+      approval: { list: () => [], create: () => {}, approve: () => {}, requireHuman: () => {} },
+      records: { accountStatus: async () => ({ authenticated: true }), getDataSource: async () => {}, close: async () => {} },
+      browser: { close: async () => {} },
+      logger: { write: async () => {}, close: async () => {} },
+      policy,
+      safetyStore: { getApproval: async (id) => id === 'policy-approval' ? { id, kind: 'AUTO_CHAT' } : null }
+    }
+  })
+  try {
+    await backend.start()
+    const [beforeHandshake] = await rawSession(paths.backendSocket, [
+      { id: 'before-handshake', method: 'system.health', params: {} }
+    ])
+    assert.equal(beforeHandshake.error.code, 'HANDSHAKE_REQUIRED')
+
+    const [, resume, approve] = await rawSession(paths.backendSocket, [
+      { id: 'handshake', method: 'system.handshake', params: { client: 'socket-client', clientVersion: '9.9.9', protocolVersion: 1 } },
+      { id: 'resume', method: 'safety.resume', params: {} },
+      { id: 'approve', method: 'approval.approve', params: { id: 'policy-approval' } }
+    ])
+    assert.deepEqual(resume.error, {
+      code: 'RISK_COOLDOWN_ACTIVE',
+      message: 'auto-chat risk cooldown is active',
+      data: { pausedUntil: '2026-07-17T00:00:00.000Z' }
+    })
+    assert.deepEqual(approve.result, { id: 'policy-approval', status: 'APPROVED' })
+    assert.deepEqual(reviewers, [{ client: 'socket-client', clientVersion: '9.9.9' }])
+
+    const [actorHandshake, actorRequest] = await rawSession(paths.backendSocket, [
+      { id: 'actor-handshake', method: 'system.handshake', params: { client: 'socket-client', clientVersion: '9.9.9', protocolVersion: 1 } },
+      { id: 'actor-request', method: 'approval.approve', params: { id: 'policy-approval', actor: { client: 'forged', clientVersion: '0.0.0' } } }
+    ])
+    assert.deepEqual(actorHandshake.result.capabilities, ['safety-policy-v1'])
+    assert.equal(actorRequest.error.code, 'INVALID_PARAMS')
+    assert.equal(reviewers.length, 1)
+  } finally {
+    await backend.stop().catch(() => {})
+    await fs.rm(policyHome, { recursive: true, force: true })
   }
 }
 

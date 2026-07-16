@@ -25,7 +25,7 @@ export function createRouter(entries = []) {
   }
 }
 
-export function registerServiceHandlers(router, { methods, task, approval }) {
+export function registerServiceHandlers(router, { methods, task, approval, policy, getSafetyApproval }) {
   return router
     .register(methods.SYSTEM_UPDATE_DRAIN, (params) => {
       onlyKeys(params, new Set(['enabled']))
@@ -35,9 +35,11 @@ export function registerServiceHandlers(router, { methods, task, approval }) {
       onlyKeys(params, new Set())
       return task.list()
     })
-    .register(methods.TASK_START, (params) => {
+    .register(methods.TASK_START, async (params) => {
       onlyKeys(params, new Set(['workerId', 'options']))
-      return task.start(params)
+      const snapshot = await task.start(params)
+      if (params.workerId === 'geekAutoStartWithBossMain') await policy.preflightStart({ runRecordId: snapshot.runRecordId })
+      return snapshot
     })
     .register(methods.TASK_STOP, (params) => {
       onlyKeys(params, new Set(['workerId']))
@@ -52,12 +54,44 @@ export function registerServiceHandlers(router, { methods, task, approval }) {
       onlyKeys(params, new Set(['request']))
       return approval.create(params.request)
     })
-    .register(methods.APPROVAL_APPROVE, (params) => {
+    .register(methods.APPROVAL_APPROVE, async (params, context) => {
       onlyKeys(params, new Set(['id', 'reason']))
+      if (await getSafetyApproval?.(params.id)) return policy.approve({ id: params.id, actor: context?.handshake })
       return approval.approve(params)
     })
     .register(methods.APPROVAL_REQUIRE_HUMAN, (params) => {
       onlyKeys(params, new Set(['id', 'reason']))
       return approval.requireHuman(params)
+    })
+    .register(methods.SAFETY_STATUS, (params) => {
+      onlyKeys(params, new Set())
+      return policy.status()
+    })
+    .register(methods.SAFETY_CONFIG_GET, (params) => {
+      onlyKeys(params, new Set())
+      return policy.getConfig()
+    })
+    .register(methods.SAFETY_CONFIG_UPDATE, (params) => {
+      onlyKeys(params, new Set(['patch']))
+      return policy.updateConfig(params.patch)
+    })
+    .register(methods.SAFETY_RESUME, (params) => {
+      onlyKeys(params, new Set())
+      return policy.resume()
+    })
+    .register(methods.AGENT_STATUS, async (params) => {
+      onlyKeys(params, new Set())
+      return { tasks: await task.list(), policy: await policy.status() }
+    })
+    .register(methods.APPROVAL_GET, async (params) => {
+      onlyKeys(params, new Set(['id']))
+      if (typeof params.id !== 'string' || !params.id) throw invalidParams('approval id is required')
+      const request = await getSafetyApproval?.(params.id)
+      if (!request) throw Object.assign(new Error('approval was not found'), { code: 'APPROVAL_NOT_FOUND' })
+      return request
+    })
+    .register(methods.APPROVAL_REJECT, (params, context) => {
+      onlyKeys(params, new Set(['id', 'reason']))
+      return policy.reject({ id: params.id, reason: params.reason, actor: context?.handshake })
     })
 }

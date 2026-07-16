@@ -118,6 +118,7 @@ assert.doesNotMatch(electronMainSource, /catch[\s\S]{0,250}openSettingWindow/, '
 const builderSource = await fs.readFile(path.join(repoRoot, 'packages/ui/electron-builder.yml'), 'utf8')
 assert.match(builderSource, /ggrd-bootstrap/, 'Electron artifacts must ship the supervisor bootstrap')
 assert.match(builderSource, /!\*\*\/\.codegraph\/\*\*/, 'Electron artifacts must exclude CodeGraph sockets and other developer-only runtime files')
+assert.match(builderSource, /!dist\*\/\*\*/, 'Electron artifacts must exclude previous local distribution directories to prevent recursive app packaging')
 assert.doesNotMatch(builderSource, /ggr-backend|better-sqlite3|sqlite-plugin|puppeteer/i, 'Electron artifact config must not package or special-case backend implementation')
 
 const viteSource = await fs.readFile(path.join(repoRoot, 'packages/ui/electron.vite.config.ts'), 'utf8')

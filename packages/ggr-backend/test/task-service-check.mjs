@@ -8,6 +8,7 @@ import { createApprovalService } from '../lib/services/approval-service.mjs'
 import { createSafetyPolicyService } from '../lib/services/safety-policy-service.mjs'
 import { createTaskService } from '../lib/services/task-service.mjs'
 import { createWorkerControlService } from '../lib/services/worker-control-service.mjs'
+import { runAutoChatEntry } from '../lib/workers/auto-chat.mjs'
 import { createWorkerReporter } from '../lib/workers/worker-reporter.mjs'
 
 function fakeChild(pid, { exitOnSignal = true } = {}) {
@@ -571,7 +572,19 @@ function fakeChild(pid, { exitOnSignal = true } = {}) {
   })
   try {
     await service.start({ workerId: 'geekAutoStartWithBossMain' })
-    children[0].stdout.emit('data', `${JSON.stringify({ ggrWorkerEvent: 1, event: 'task.progress', data: { workerId: 'geekAutoStartWithBossMain', state: 'runtime-error', code: 'SAFETY_POLICY_STOP', message: 'Safety channel unavailable' } })}\n`)
+    const taskReporter = createWorkerReporter({ write: (line) => children[0].stdout.emit('data', line) })
+    await assert.rejects(runAutoChatEntry({
+      createRuntime: async () => { throw Object.assign(new Error('Boss cookies are required'), { code: 'SAFETY_POLICY_STOP' }) },
+      taskReporter,
+      shouldStop: async () => false
+    }), { code: 'SAFETY_POLICY_STOP' })
+    assert.deepEqual(events.filter(({ event, data }) => event === 'task.progress' && data.state === 'runtime-error').map(({ data }) => ({
+      code: data.code,
+      message: data.message
+    })), [{
+      code: 'SAFETY_POLICY_STOP',
+      message: 'Boss cookies are required'
+    }])
     children[0].emit('exit', 1, null)
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(children.length, 1, 'a safety policy stop must not spawn a replacement worker')

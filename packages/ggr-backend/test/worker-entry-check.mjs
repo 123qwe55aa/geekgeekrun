@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AsyncSeriesHook } from 'tapable'
 
-import { runAutoChat } from '../lib/workers/auto-chat.mjs'
+import { runAutoChat, runAutoChatEntry } from '../lib/workers/auto-chat.mjs'
 import { runReadNoReply } from '../lib/workers/read-no-reply.mjs'
 import { createWorkerReporter } from '../lib/workers/worker-reporter.mjs'
 import { resolveRerunInterval } from '../lib/workers/restart-policy.mjs'
@@ -32,6 +32,18 @@ async function checkWorker(run, workerId) {
 
 await checkWorker(runAutoChat, 'geekAutoStartWithBossMain')
 await checkWorker(runReadNoReply, 'readNoReplyAutoReminderMain')
+
+{
+  const events = []
+  await assert.rejects(runAutoChatEntry({
+    createRuntime: async () => ({
+      async runOnce() { throw Object.assign(new Error('login expired'), { code: 'LOGIN_STATUS_INVALID' }) }
+    }),
+    taskReporter: { emit: (event, data) => events.push({ event, data }) },
+    shouldStop: async () => false
+  }), { code: 'LOGIN_STATUS_INVALID' })
+  assert.deepEqual(events.map(({ data }) => data.state), ['failed'], 'runAutoChat must remain the sole reporter for run-loop failures')
+}
 
 {
   const lines = []

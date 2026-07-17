@@ -30,6 +30,8 @@ jobs:
         pnpm install --filter packages/ui...
 
     - name: Build
+      env:
+        ELECTRON_MIRROR: https://github.com/electron/electron/releases
       run: pnpm --filter packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
@@ -72,6 +74,8 @@ jobs:
         pnpm install --filter packages/ui...
 
     - name: Build
+      env:
+        ELECTRON_MIRROR: https://github.com/electron/electron/releases
       run: pnpm --filter packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
@@ -107,6 +111,8 @@ jobs:
         pnpm install --filter packages/ui...
 
     - name: Build
+      env:
+        ELECTRON_MIRROR: https://github.com/electron/electron/releases
       run: pnpm --filter packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact

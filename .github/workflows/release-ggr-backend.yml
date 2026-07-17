@@ -30,7 +30,7 @@ jobs:
           version: 10.33.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20.16.0
           cache: pnpm
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
@@ -51,7 +51,7 @@ jobs:
           version: 10.33.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20.16.0
           architecture: arm64
           cache: pnpm
       - run: pnpm install --no-frozen-lockfile
@@ -62,9 +62,12 @@ jobs:
         env:
           GGR_SIGNING_IDENTITY: ${{ secrets.GGR_SIGNING_IDENTITY }}
           GGR_RELEASE_BUILD: '1'
-        run: >-
-          pnpm build:ggr-backend-artifact --version "${{ inputs.version || github.ref_name }}"
-          --channel stable ${{ secrets.GGR_SIGNING_IDENTITY != '' && '--codesign-identity ' || '--unsigned-test' }}${{ secrets.GGR_SIGNING_IDENTITY || '' }}
+        run: |
+          args=(--version "${{ inputs.version || github.ref_name }}" --channel stable)
+          if [ -n "$GGR_SIGNING_IDENTITY" ]; then
+            args+=(--codesign-identity "$GGR_SIGNING_IDENTITY")
+          fi
+          pnpm build:ggr-backend-artifact -- "${args[@]}"
       - name: Extract and health-check the production artifact
         env:
           VERSION: ${{ inputs.version || github.ref_name }}
@@ -137,7 +140,8 @@ jobs:
             --release-dir "dist/ggr-runtime/$VERSION/$ARCH/release" \
             --output-dir "dist/ggr-runtime/$VERSION/$ARCH/app"
           ditto -c -k --keepParent "dist/ggr-runtime/$VERSION/$ARCH/app/GGR Runtime.app" "dist/ggr-runtime/$VERSION/GGR-Runtime-$VERSION-darwin-$ARCH.app.zip"
-      - name: Notarize signed artifact
+      - name: Notarize signed artifact (optional)
+        if: ${{ env.GGR_NOTARY_API_KEY != '' && env.GGR_NOTARY_KEY_ID != '' && env.GGR_NOTARY_ISSUER != '' }}
         env:
           GGR_NOTARY_API_KEY: ${{ secrets.GGR_NOTARY_API_KEY }}
           GGR_NOTARY_KEY_ID: ${{ secrets.GGR_NOTARY_KEY_ID }}

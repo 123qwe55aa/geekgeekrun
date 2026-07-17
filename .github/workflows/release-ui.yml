@@ -8,6 +8,7 @@ on:
 
 jobs:
   build_on_windows:
+    timeout-minutes: 15
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
       VITE_APP_GTAG_API_SECRET: ${{ secrets.VITE_APP_GTAG_API_SECRET }}
@@ -43,6 +44,7 @@ jobs:
         overwrite: true
 
   build_on_macos:
+    timeout-minutes: 15
     strategy:
       matrix:
         platform:
@@ -87,6 +89,7 @@ jobs:
         overwrite: true
 
   build_on_linux:
+    timeout-minutes: 15
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
       VITE_APP_GTAG_API_SECRET: ${{ secrets.VITE_APP_GTAG_API_SECRET }}

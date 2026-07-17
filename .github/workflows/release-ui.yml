@@ -32,7 +32,7 @@ jobs:
 
     - name: Build
       run: |
-        sed -i '/^electronDownload:/,+1d' packages/ui/electron-builder.yml
+        node -e "require('fs').writeFileSync('packages/ui/electron-builder.yml', require('fs').readFileSync('packages/ui/electron-builder.yml','utf8').replace(/^electronDownload:\n  mirror:.*\n?/m,''))"
         pnpm --filter packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
@@ -77,7 +77,7 @@ jobs:
 
     - name: Build
       run: |
-        sed -i '/^electronDownload:/,+1d' packages/ui/electron-builder.yml
+        node -e "require('fs').writeFileSync('packages/ui/electron-builder.yml', require('fs').readFileSync('packages/ui/electron-builder.yml','utf8').replace(/^electronDownload:\n  mirror:.*\n?/m,''))"
         pnpm --filter packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
@@ -115,7 +115,7 @@ jobs:
 
     - name: Build
       run: |
-        sed -i '/^electronDownload:/,+1d' packages/ui/electron-builder.yml
+        node -e "require('fs').writeFileSync('packages/ui/electron-builder.yml', require('fs').readFileSync('packages/ui/electron-builder.yml','utf8').replace(/^electronDownload:\n  mirror:.*\n?/m,''))"
         pnpm --filter packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact

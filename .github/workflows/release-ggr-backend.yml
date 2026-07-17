@@ -32,8 +32,9 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: echo 'onlyBuiltDependencies=better-sqlite3' > .npmrc && pnpm install --no-frozen-lockfile --force
+      - run: pnpm install --no-frozen-lockfile --ignore-scripts
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
+      - run: pnpm rebuild better-sqlite3
       - run: pnpm --filter @geekgeekrun/ggr-protocol test
       - run: pnpm --filter @geekgeekrun/ggr-backend test
       - run: pnpm --filter @geekgeekrun/ggrd test
@@ -54,8 +55,9 @@ jobs:
           node-version: 22
           architecture: arm64
           cache: pnpm
-      - run: echo 'onlyBuiltDependencies=better-sqlite3' > .npmrc && pnpm install --no-frozen-lockfile --force
+      - run: pnpm install --no-frozen-lockfile --ignore-scripts
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
+      - run: pnpm rebuild better-sqlite3
       # Timestamped codesigning makes final release bytes non-reproducible.
       # The signed manifest SHA-256 is the immutable release integrity check.
       - name: Build timestamped signed release artifact

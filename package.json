@@ -1,69 +1,16 @@
 {
-  "name": "geekgeekrun",
-  "private": true,
+  "name": "@geekgeekrun/ggr-client",
   "version": "1.0.0",
-  "description": "geek-auto-start-chat-with-boss",
-  "module": "./main/index.mjs",
   "type": "module",
-  "scripts": {
-    "start": "node ./packages/ggr-backend/server.mjs",
-    "start:ggr-mcp": "node ./packages/ggr-mcp/server.mjs",
-    "dev:backend": "GGR_BACKEND_DEV=1 node ./packages/ggr-backend/server.mjs",
-    "test": "node ./packages/ggr-controller/test/check.mjs && node ./packages/ggr-mcp/test/check.mjs && node ./packages/ui/test/check.mjs && node ./packages/ui/test/hr-reply-policy-check.mjs",
-    "test:ggr-client": "node ./packages/ggr-client/test/check.mjs",
-    "test:ggr-cli": "pnpm --filter @geekgeekrun/ggr-cli test",
-    "ggr": "node ./packages/ggr-cli/bin/ggr.mjs",
-    "test:ggr-backend": "node ./packages/ggr-backend/test/server-check.mjs",
-    "build:ggr-backend-artifact": "node ./scripts/build-ggr-backend-artifact.mjs",
-    "sign:ggr-backend-manifest": "node ./scripts/sign-ggr-backend-manifest.mjs",
-    "test:ggr-protocol": "node ./packages/ggr-protocol/test/check.mjs",
-    "test:ggr-mcp": "node ./packages/ggr-mcp/test/check.mjs",
-    "test:ui": "node ./packages/ui/test/check.mjs"
-  },
-  "author": "geekgeekrun",
-  "license": "ISC",
-  "dependencies": {
-    "@geekgeekrun/puppeteer-extra-plugin-laodeng": "workspace:*",
-    "cheerio": "1.0.0-rc.12",
-    "dayjs": "^1.11.10",
-    "electron": "39.2.7",
-    "json5": "^2.2.3",
-    "minimist": "^1.2.8",
-    "puppeteer": "24.19.0",
-    "puppeteer-extra": "3.3.6",
-    "puppeteer-extra-plugin-anonymize-ua": "2.4.6",
-    "puppeteer-extra-plugin-stealth": "2.11.2",
-    "rimraf": "^3.0.2",
-    "tapable": "^2.2.1"
-  },
-  "devDependencies": {
-    "semver": "^7.6.0"
-  },
-  "volta": {
-    "node": "20.16.0"
-  },
-  "engines": {
-    "pnpm": ">=8.15.9"
-  },
-  "packageManager": "pnpm@10.33.2",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "puppeteer",
-      "better-sqlite3",
-      "electron",
-      "electron@28.2.0",
-      "electron@39.2.7",
-      "@parcel/watcher",
-      "@discordjs/opus",
-      "@whiskeysockets/baileys",
-      "koffi",
-      "node-llama-cpp",
-      "protobufjs",
-      "sharp"
-    ],
-    "patchedDependencies": {
-      "puppeteer-extra-plugin-anonymize-ua@2.4.6": "patches/puppeteer-extra-plugin-anonymize-ua@2.4.6.patch"
+  "main": "./index.mjs",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs"
     }
+  },
+  "dependencies": {
+    "@geekgeekrun/ggr-protocol": "workspace:*"
   }
 }

@@ -115,13 +115,14 @@ jobs:
         name: binary-geekgeekrun-ui-linux-x64-${{ github.sha }}
         path: |
           ${{ github.workspace }}/packages/ui/dist/*.deb
-          ${{ github.workspace }}/packages/ui/dist/*.rpm
         overwrite: true
 
   release:
     runs-on: ubuntu-latest
-    permissions: write-all
-    needs: 
+    permissions:
+      contents: write
+      actions: read
+    needs:
       - build_on_linux
       - build_on_macos
       - build_on_windows
@@ -145,4 +146,5 @@ jobs:
           artifacts: geekgeekrun-ui@${{ github.sha }}/*
           tag: ${{ github.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          body: TODO New Release.
+          generateReleaseNotes: true
+          skipIfMissing: true

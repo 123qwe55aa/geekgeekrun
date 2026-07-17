@@ -67,7 +67,7 @@ jobs:
           if [ -n "$GGR_SIGNING_IDENTITY" ]; then
             args+=(--codesign-identity "$GGR_SIGNING_IDENTITY")
           fi
-          pnpm build:ggr-backend-artifact -- "${args[@]}"
+          pnpm build:ggr-backend-artifact "${args[@]}"
       - name: Extract and health-check the production artifact
         env:
           VERSION: ${{ inputs.version || github.ref_name }}

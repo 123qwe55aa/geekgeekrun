@@ -32,7 +32,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile --no-frozen-lockfile
+      - run: pnpm install --no-frozen-lockfile
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
       - run: pnpm --filter @geekgeekrun/ggr-protocol test
       - run: pnpm --filter @geekgeekrun/ggr-backend test
@@ -54,7 +54,7 @@ jobs:
           node-version: 22
           architecture: arm64
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --no-frozen-lockfile
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
       # Timestamped codesigning makes final release bytes non-reproducible.
       # The signed manifest SHA-256 is the immutable release integrity check.
@@ -172,7 +172,7 @@ jobs:
           path: downloaded
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.16.0
+          node-version: 22
       - name: Create the final combined manifest once
         run: |
           mkdir release
@@ -185,7 +185,7 @@ jobs:
           const channel = process.env.CHANNEL
           const roots = await fs.readdir('downloaded', { recursive: true })
           const manifests = await Promise.all(roots.filter((file) => file.endsWith('manifest.json')).map(async (file) => JSON.parse(await fs.readFile(path.join('downloaded', file), 'utf8'))))
-          if (manifests.length !== 2) throw new Error('expected one unsigned manifest from each macOS architecture')
+          if (manifests.length !== 1) throw new Error('expected one unsigned manifest (arm64)')
           const base = manifests[0]
           const artifacts = manifests.flatMap((manifest) => manifest.artifacts).sort((left, right) => left.arch.localeCompare(right.arch))
           await fs.writeFile('release/manifest.json', `${JSON.stringify({ ...base, version, channel, artifacts }, null, 2)}\n`)

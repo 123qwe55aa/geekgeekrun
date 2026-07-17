@@ -28,12 +28,12 @@ jobs:
     - name: Install dependencies
       run: |
         npm i -g pnpm@9
-        pnpm install --filter packages/ui...
+        pnpm install --filter ./packages/ui...
 
     - name: Build
       run: |
         node -e "require('fs').writeFileSync('packages/ui/electron-builder.yml', require('fs').readFileSync('packages/ui/electron-builder.yml','utf8').replace(/^electronDownload:\n  mirror:.*\n?/m,''))"
-        pnpm --filter packages/ui run build:make-dist-for-current-platform
+        pnpm --filter ./packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -73,12 +73,12 @@ jobs:
     - name: Install dependencies
       run: |
         npm i -g pnpm@9
-        pnpm install --filter packages/ui...
+        pnpm install --filter ./packages/ui...
 
     - name: Build
       run: |
         node -e "require('fs').writeFileSync('packages/ui/electron-builder.yml', require('fs').readFileSync('packages/ui/electron-builder.yml','utf8').replace(/^electronDownload:\n  mirror:.*\n?/m,''))"
-        pnpm --filter packages/ui run build:make-dist-for-current-platform
+        pnpm --filter ./packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -111,12 +111,12 @@ jobs:
     - name: Install dependencies
       run: |
         npm i -g pnpm@9
-        pnpm install --filter packages/ui...
+        pnpm install --filter ./packages/ui...
 
     - name: Build
       run: |
         node -e "require('fs').writeFileSync('packages/ui/electron-builder.yml', require('fs').readFileSync('packages/ui/electron-builder.yml','utf8').replace(/^electronDownload:\n  mirror:.*\n?/m,''))"
-        pnpm --filter packages/ui run build:make-dist-for-current-platform
+        pnpm --filter ./packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4

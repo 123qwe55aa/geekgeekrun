@@ -36,7 +36,7 @@ jobs:
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
       - run: cd node_modules/better-sqlite3 && npx node-gyp rebuild
       - run: pnpm --filter @geekgeekrun/ggr-protocol test
-      - run: pnpm --filter @geekgeekrun/ggr-backend add cheerio --no-save && pnpm --filter @geekgeekrun/ggr-backend test
+      - run: pnpm --filter @geekgeekrun/ggr-backend test
       - run: pnpm --filter @geekgeekrun/ggrd test
 
   build:

@@ -22,5 +22,13 @@
     ]
   },
   "private": true,
-  "packageManager": "pnpm@10.33.2"
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "build:ggr-backend-artifact": "node scripts/build-ggr-backend-artifact.mjs",
+    "build:ggr-runtime-release": "node scripts/build-ggr-runtime-release.mjs",
+    "build:ggr-runtime-app": "node scripts/build-ggr-runtime-app.mjs",
+    "build:ggrd-bootstrap": "node scripts/build-ggrd-bootstrap.mjs",
+    "sign:ggr-backend-manifest": "node scripts/sign-ggr-backend-manifest.mjs",
+    "install:ggr-runtime": "node scripts/install-ggr-runtime.mjs"
+  }
 }

@@ -32,9 +32,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
-      - run: pnpm install --no-frozen-lockfile
       - run: pnpm --filter @geekgeekrun/ggr-protocol test
       - run: pnpm --filter @geekgeekrun/ggr-backend test
       - run: pnpm --filter @geekgeekrun/ggrd test

@@ -15,8 +15,12 @@ function parseArguments(argv) {
   return options
 }
 
-const privateKey = process.env.GGR_UPDATE_PRIVATE_KEY
-if (!privateKey) throw new Error('GGR_UPDATE_PRIVATE_KEY is required')
+const rawPrivateKey = process.env.GGR_UPDATE_PRIVATE_KEY
+if (!rawPrivateKey) throw new Error('GGR_UPDATE_PRIVATE_KEY is required')
+// GitHub repository secrets are sometimes pasted as a single line with literal
+// `\\n` separators. Normalize that representation while accepting regular PEM
+// values (including CRLF) unchanged.
+const privateKey = rawPrivateKey.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').trim()
 
 const options = parseArguments(process.argv.slice(2))
 const manifest = await fs.readFile(options.manifest)

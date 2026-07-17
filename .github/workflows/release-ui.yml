@@ -30,9 +30,7 @@ jobs:
         pnpm install --filter packages/ui...
 
     - name: Build
-      run: |
-        cd packages/ui
-        pnpm run build:make-dist-for-current-platform
+      run: pnpm --filter packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -74,9 +72,7 @@ jobs:
         pnpm install --filter packages/ui...
 
     - name: Build
-      run: |
-        cd packages/ui
-        pnpm run build:make-dist-for-current-platform
+      run: pnpm --filter packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -111,9 +107,7 @@ jobs:
         pnpm install --filter packages/ui...
 
     - name: Build
-      run: |
-        cd packages/ui
-        pnpm run build:make-dist-for-current-platform
+      run: pnpm --filter packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4

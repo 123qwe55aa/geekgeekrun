@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { completes } from '../../../../utils/gpt-request.mjs'
+import { completes } from '@geekgeekrun/utils/gpt-request.mjs'
 import { createRuntimePaths } from '../../runtime-paths.mjs'
 
 const RESUME_PLACEHOLDER = '__REPLACE_REAL_RESUME_HERE__'

@@ -28,7 +28,7 @@ jobs:
     - name: Install dependencies
       run: |
         npm i -g pnpm@9
-        pnpm install --filter ./packages/ui...
+        pnpm install --no-frozen-lockfile --filter ./packages/ui...
 
     - name: Build
       run: |
@@ -73,7 +73,7 @@ jobs:
     - name: Install dependencies
       run: |
         npm i -g pnpm@9
-        pnpm install --filter ./packages/ui...
+        pnpm install --no-frozen-lockfile --filter ./packages/ui...
 
     - name: Build
       run: |
@@ -111,7 +111,7 @@ jobs:
     - name: Install dependencies
       run: |
         npm i -g pnpm@9
-        pnpm install --filter ./packages/ui...
+        pnpm install --no-frozen-lockfile --filter ./packages/ui...
 
     - name: Build
       run: |

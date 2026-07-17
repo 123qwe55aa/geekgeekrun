@@ -45,23 +45,14 @@ jobs:
 
   build_on_macos:
     timeout-minutes: 15
-    strategy:
-      matrix:
-        platform:
-          - os: macos-13 # for x64 build
-            arch: x64
-          - os: macos-15 # for arm64 build
-            arch: arm64
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
       VITE_APP_GTAG_API_SECRET: ${{ secrets.VITE_APP_GTAG_API_SECRET }}
       VITE_APP_GTAG_MEASUREMENT_ID: ${{ secrets.VITE_APP_GTAG_MEASUREMENT_ID }}
-    runs-on: ${{ matrix.platform.os }}
+    runs-on: macos-15
     permissions: write-all
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
     - name: Checkout source
       uses: actions/checkout@v4
     
@@ -83,7 +74,7 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: binary-geekgeekrun-ui-macos-${{ matrix.platform.arch }}-${{ github.sha }}
+        name: binary-geekgeekrun-ui-macos-arm64-${{ github.sha }}
         path: |
           ${{ github.workspace }}/packages/ui/dist/*
         overwrite: true

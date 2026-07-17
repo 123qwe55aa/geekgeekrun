@@ -15,17 +15,19 @@ jobs:
     runs-on: windows-2022
     permissions: write-all
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
     - name: Checkout source
       uses: actions/checkout@v4
     
-    - name: Install pnpm
-      run: npm i pnpm@8.15.9 -g
-
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    
     - name: Install dependencies
-      run: pnpm install --filter packages/ui...
+      run: |
+        npm i -g pnpm@9
+        pnpm install --filter packages/ui...
 
     - name: Build
       run: |
@@ -61,9 +63,14 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
     
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    
     - name: Install dependencies
       run: |
-        npm i pnpm@8.15.9 -g
+        npm i -g pnpm@9
         pnpm install --filter packages/ui...
 
     - name: Build
@@ -93,9 +100,14 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
     
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    
     - name: Install dependencies
       run: |
-        npm i pnpm@8.15.9 -g
+        npm i -g pnpm@9
         pnpm install --filter packages/ui...
 
     - name: Build

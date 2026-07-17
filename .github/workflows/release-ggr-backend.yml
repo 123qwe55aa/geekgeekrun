@@ -32,11 +32,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: |
-          echo 'onlyBuiltDependencies[]=better-sqlite3' >> .npmrc
-          echo 'onlyBuiltDependencies[]=esbuild' >> .npmrc
-          echo 'onlyBuiltDependencies[]=electron' >> .npmrc
-          pnpm install --no-frozen-lockfile
+      - run: pnpm install --no-frozen-lockfile
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
       - run: pnpm --filter @geekgeekrun/ggr-protocol test
       - run: pnpm --filter @geekgeekrun/ggr-backend test

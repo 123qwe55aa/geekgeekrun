@@ -19,6 +19,7 @@ function parse(argv) {
 const options = parse(process.argv.slice(2))
 const metadata = JSON.parse(await fs.readFile(path.join(options.releaseDirectory, 'runtime-release.json'), 'utf8'))
 if (metadata?.format !== 1 || metadata.platform !== process.platform || metadata.arch !== process.arch) throw new Error('Runtime release is incompatible with this machine')
+if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(metadata.bootstrapVersion ?? '')) throw new Error('Runtime release has an invalid supervisor bootstrap version')
 const supervisor = path.resolve(options.releaseDirectory, metadata.supervisor)
 const backend = path.resolve(options.releaseDirectory, 'backend')
 if (!supervisor.startsWith(`${options.releaseDirectory}${path.sep}`) || !backend.startsWith(`${options.releaseDirectory}${path.sep}`)) throw new Error('Runtime release paths are unsafe')
@@ -39,6 +40,6 @@ if (!await versionStore.current()) {
 await installLaunchdSupervisor({
   homeDirectory: options.home,
   bootstrapSource: supervisor,
-  bootstrapVersion: `runtime-${manifest.version}`
+  bootstrapVersion: metadata.bootstrapVersion
 })
 console.log(`GGR Runtime installed; backend ${await versionStore.current()}`)

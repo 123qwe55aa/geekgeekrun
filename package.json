@@ -27,6 +27,7 @@
     "build:ggr-backend-artifact": "node scripts/build-ggr-backend-artifact.mjs",
     "build:ggr-runtime-release": "node scripts/build-ggr-runtime-release.mjs",
     "build:ggr-runtime-app": "node scripts/build-ggr-runtime-app.mjs",
+    "test:ggr-runtime-release": "node scripts/test/ggr-runtime-release-check.mjs",
     "build:ggrd-bootstrap": "node scripts/build-ggrd-bootstrap.mjs",
     "sign:ggr-backend-manifest": "node scripts/sign-ggr-backend-manifest.mjs",
     "install:ggr-runtime": "node scripts/install-ggr-runtime.mjs"

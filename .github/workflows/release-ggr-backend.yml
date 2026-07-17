@@ -18,6 +18,30 @@ on:
       - "ggr-backend-v*"
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      channel: ${{ steps.release.outputs.channel }}
+    steps:
+      - id: release
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+        run: |
+          version="$INPUT_VERSION"
+          if [ -z "$version" ]; then version="${GITHUB_REF_NAME#ggr-backend-v}"; fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "A semantic backend version is required; received: $version" >&2
+            exit 1
+          fi
+          channel="${INPUT_CHANNEL:-stable}"
+          if [ "$channel" != stable ] && [ "$channel" != beta ]; then
+            echo "Unsupported release channel: $channel" >&2
+            exit 1
+          fi
+          printf 'version=%s\nchannel=%s\n' "$version" "$channel" >> "$GITHUB_OUTPUT"
+
   verify:
     runs-on: macos-15
     timeout-minutes: 10
@@ -33,13 +57,15 @@ jobs:
           node-version: 20.16.0
           cache: pnpm
       - run: pnpm install --no-frozen-lockfile
+      - run: pnpm rebuild better-sqlite3
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
+      - run: pnpm test:ggr-runtime-release
       - run: pnpm --filter @geekgeekrun/ggr-protocol test
       - run: pnpm --filter @geekgeekrun/ggr-backend test
       - run: pnpm --filter @geekgeekrun/ggrd test
 
   build:
-    needs: verify
+    needs: [prepare, verify]
     timeout-minutes: 20
     runs-on: macos-15
     permissions:
@@ -55,6 +81,7 @@ jobs:
           architecture: arm64
           cache: pnpm
       - run: pnpm install --no-frozen-lockfile
+      - run: pnpm rebuild better-sqlite3
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
       # Timestamped codesigning makes final release bytes non-reproducible.
       # The signed manifest SHA-256 is the immutable release integrity check.
@@ -63,14 +90,14 @@ jobs:
           GGR_SIGNING_IDENTITY: ${{ secrets.GGR_SIGNING_IDENTITY }}
           GGR_RELEASE_BUILD: '1'
         run: |
-          args=(--version "${{ inputs.version || github.ref_name }}" --channel stable)
+          args=(--version "${{ needs.prepare.outputs.version }}" --channel "${{ needs.prepare.outputs.channel }}")
           if [ -n "$GGR_SIGNING_IDENTITY" ]; then
             args+=(--codesign-identity "$GGR_SIGNING_IDENTITY")
           fi
           pnpm build:ggr-backend-artifact "${args[@]}"
       - name: Extract and health-check the production artifact
         env:
-          VERSION: ${{ inputs.version || github.ref_name }}
+          VERSION: ${{ needs.prepare.outputs.version }}
           ARCH: arm64
         run: |
           staging="$(mktemp -d)"
@@ -111,7 +138,7 @@ jobs:
           NODE
       - name: Verify timestamped release artifact digest
         env:
-          VERSION: ${{ inputs.version || github.ref_name }}
+          VERSION: ${{ needs.prepare.outputs.version }}
           ARCH: arm64
         run: |
           node --input-type=module <<'NODE'
@@ -126,7 +153,7 @@ jobs:
           NODE
       - name: Build signed standalone Runtime app
         env:
-          VERSION: ${{ inputs.version || github.ref_name }}
+          VERSION: ${{ needs.prepare.outputs.version }}
           ARCH: arm64
           GGR_UPDATE_PRIVATE_KEY: ${{ secrets.GGR_UPDATE_PRIVATE_KEY }}
         run: |
@@ -147,7 +174,7 @@ jobs:
           GGR_NOTARY_KEY_ID: ${{ secrets.GGR_NOTARY_KEY_ID }}
           GGR_NOTARY_ISSUER: ${{ secrets.GGR_NOTARY_ISSUER }}
         run: |
-          artifact="dist/ggr-backend/${{ inputs.version || github.ref_name }}/ggr-backend-${{ inputs.version || github.ref_name }}-darwin-arm64.tar.gz"
+          artifact="dist/ggr-backend/${{ needs.prepare.outputs.version }}/ggr-backend-${{ needs.prepare.outputs.version }}-darwin-arm64.tar.gz"
           umask 077
           ditto -c -k --keepParent "$artifact" "$artifact.zip"
           key="$RUNNER_TEMP/AuthKey_${GGR_NOTARY_KEY_ID}.p8"
@@ -160,12 +187,12 @@ jobs:
         with:
           name: ggr-backend-arm64
           path: |
-            dist/ggr-backend/${{ inputs.version || github.ref_name }}/
-            dist/ggr-runtime/${{ inputs.version || github.ref_name }}/GGR-Runtime-${{ inputs.version || github.ref_name }}-darwin-arm64.app.zip
+            dist/ggr-backend/${{ needs.prepare.outputs.version }}/
+            dist/ggr-runtime/${{ needs.prepare.outputs.version }}/GGR-Runtime-${{ needs.prepare.outputs.version }}-darwin-arm64.app.zip
           if-no-files-found: error
 
   release:
-    needs: build
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -195,8 +222,8 @@ jobs:
           await fs.writeFile('release/manifest.json', `${JSON.stringify({ ...base, version, channel, artifacts }, null, 2)}\n`)
           NODE
         env:
-          VERSION: ${{ inputs.version || github.ref_name }}
-          CHANNEL: ${{ inputs.channel || 'stable' }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
       - name: Sign final manifest bytes
         env:
           GGR_UPDATE_PRIVATE_KEY: ${{ secrets.GGR_UPDATE_PRIVATE_KEY }}
@@ -205,15 +232,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          gh release create "ggr-backend-v${{ inputs.version || github.ref_name }}"
+          gh release create "ggr-backend-v${{ needs.prepare.outputs.version }}"
           release/ggr-backend-*.tar.gz release/GGR-Runtime-*.app.zip release/manifest.json release/manifest.sig
-          --target "${{ github.sha }}" --title "GGR Backend ${{ inputs.version || github.ref_name }}"
+          --target "${{ github.sha }}" --title "GGR Backend ${{ needs.prepare.outputs.version }}"
           --generate-notes
       - name: Publish the signed selected-channel manifest
         env:
           GH_TOKEN: ${{ github.token }}
-          CHANNEL: ${{ inputs.channel }}
-          VERSION: ${{ inputs.version || github.ref_name }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           tag="ggrd-$CHANNEL"
           if gh release view "$tag" >/dev/null 2>&1; then

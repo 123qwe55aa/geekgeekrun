@@ -1,4 +1,7 @@
 import { Readable } from 'node:stream'
+import fs from 'node:fs'
+import fsPromises from 'node:fs/promises'
+import path from 'node:path'
 import { PROTOCOL_VERSION } from '@geekgeekrun/ggr-protocol'
 import { installArtifact } from './installer.mjs'
 import { verifyManifest } from './manifest.mjs'
@@ -115,6 +118,48 @@ export function createReleaseService({
       } finally {
         if (timer) clearTimeout(timer)
       }
+    }
+  })
+}
+
+/** Install the signed artifact shipped by a separately released GGR Runtime. */
+export function createLocalReleaseService({
+  versionStore,
+  releaseDirectory,
+  trustRoot = createTrustRoot(),
+  extract = extractTarGzip,
+  freeSpace,
+  platform = process.platform,
+  arch = process.arch,
+  clientVersion,
+  migrationService
+} = {}) {
+  if (!versionStore?.stage || !versionStore?.discard || !versionStore?.stagingDir) throw new TypeError('a version store is required')
+  if (!path.isAbsolute(releaseDirectory)) throw new TypeError('releaseDirectory must be absolute')
+  async function verifiedManifest() {
+    const [rawManifest, signature] = await Promise.all([
+      fsPromises.readFile(path.join(releaseDirectory, 'manifest.json')),
+      fsPromises.readFile(path.join(releaseDirectory, 'manifest.sig'), 'utf8')
+    ])
+    return verifyManifest({ rawManifest, signature: signature.trim(), publicKey: trustRoot.publicKey, platform, arch, clientVersion, protocolVersion: PROTOCOL_VERSION })
+  }
+  return Object.freeze({
+    checkForUpdates: verifiedManifest,
+    install: async () => {
+      const manifest = await verifiedManifest()
+      const artifactName = path.basename(new URL(manifest.artifact.url).pathname)
+      const archive = path.join(releaseDirectory, artifactName)
+      const info = await fsPromises.lstat(archive)
+      if (!info.isFile() || info.isSymbolicLink()) throw failure('ARTIFACT_UNAVAILABLE', 'Signed local backend artifact is unavailable')
+      const installation = await installArtifact({
+        manifest,
+        download: async () => ({ stream: fs.createReadStream(archive) }),
+        extract,
+        versionStore,
+        freeSpace
+      })
+      if (migrationService) await migrationService.rehearse({ version: installation.version, database: manifest.database ?? manifest.databaseCompatibility, versionsDir: versionStore.versionsDir })
+      return installation
     }
   })
 }

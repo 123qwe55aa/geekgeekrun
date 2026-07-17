@@ -218,7 +218,7 @@ async function build(options) {
       filename: fileName,
       platform: 'darwin',
       arch,
-      url: `${options.baseUrl ?? `https://github.com/geekgeekrun/geekgeekrun/releases/download/ggr-backend-v${options.version}`}/${fileName}`,
+      url: `${options.baseUrl ?? `https://github.com/123qwe55aa/geekgeekrun/releases/download/ggr-backend-v${options.version}`}/${fileName}`,
       size: archive.length,
       extractionSize: await extractedSize(stagingDirectory),
       sha256: createHash('sha256').update(archive).digest('hex')

@@ -141,6 +141,11 @@ try {
     env: { ...process.env, GGR_UPDATE_PRIVATE_KEY: privateKeyPem }
   })
   const manifest = await fs.readFile(manifestPath)
+  assert.equal(
+    JSON.parse(manifest).artifacts[0].url,
+    `https://github.com/123qwe55aa/geekgeekrun/releases/download/ggr-backend-v${version}/ggr-backend-${version}-darwin-${process.arch}.tar.gz`,
+    'the default artifact URL must target the project release repository'
+  )
   const signature = Buffer.from((await fs.readFile(signaturePath, 'utf8')).trim(), 'base64')
   assert(verify(null, manifest, publicKey, signature), 'manifest signature must verify the final raw manifest bytes')
   assert.equal(

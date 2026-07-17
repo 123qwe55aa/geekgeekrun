@@ -24,6 +24,9 @@ function options(argv) {
 }
 
 const config = options(process.argv.slice(2))
+const ggrdPackage = JSON.parse(await fs.readFile(path.join(root, 'packages', 'ggrd', 'package.json'), 'utf8'))
+const bootstrapVersion = `ggrd-${ggrdPackage.version}`
+if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(bootstrapVersion)) throw new Error('ggrd package version is invalid for a Runtime bootstrap')
 for (const input of [config.backendArtifact, config.manifest, config.signature]) {
   const info = await fs.lstat(input)
   if (!info.isFile() || info.isSymbolicLink()) throw new Error(`release input must be a regular file: ${input}`)
@@ -47,6 +50,7 @@ try {
     platform: process.platform,
     arch: process.arch,
     supervisor: 'supervisor',
+    bootstrapVersion,
     backend: { artifact: path.basename(config.backendArtifact), manifest: 'manifest.json', signature: 'manifest.sig' }
   }, null, 2)}\n`, { mode: 0o600 })
   await fs.rm(config.outputDir, { recursive: true, force: true })

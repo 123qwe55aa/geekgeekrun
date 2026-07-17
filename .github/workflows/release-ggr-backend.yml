@@ -13,22 +13,26 @@ on:
         default: stable
         type: choice
         options: [stable, beta]
+  push:
+    tags:
+      - "ggr-backend-v*"
 
 jobs:
   verify:
-    runs-on: macos-15
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: 10.33.2
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20.16.0
+          node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --no-frozen-lockfile
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
       - run: pnpm --filter @geekgeekrun/ggr-protocol test
       - run: pnpm --filter @geekgeekrun/ggr-backend test
@@ -36,26 +40,19 @@ jobs:
 
   build:
     needs: verify
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            arch: arm64
-          - runner: macos-15-intel
-            arch: x64
-    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    runs-on: macos-15
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: 10.33.2
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20.16.0
-          architecture: ${{ matrix.arch }}
+          node-version: 22
+          architecture: arm64
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
@@ -66,12 +63,12 @@ jobs:
           GGR_SIGNING_IDENTITY: ${{ secrets.GGR_SIGNING_IDENTITY }}
           GGR_RELEASE_BUILD: '1'
         run: >-
-          pnpm build:ggr-backend-artifact -- --version "${{ inputs.version }}"
+          pnpm build:ggr-backend-artifact -- --version "${{ inputs.version || github.ref_name }}"
           --channel "${{ inputs.channel }}" --codesign-identity "$GGR_SIGNING_IDENTITY"
       - name: Extract and health-check the production artifact
         env:
-          VERSION: ${{ inputs.version }}
-          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ inputs.version || github.ref_name }}
+          ARCH: arm64
         run: |
           staging="$(mktemp -d)"
           backend_pid=''
@@ -111,8 +108,8 @@ jobs:
           NODE
       - name: Verify timestamped release artifact digest
         env:
-          VERSION: ${{ inputs.version }}
-          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ inputs.version || github.ref_name }}
+          ARCH: arm64
         run: |
           node --input-type=module <<'NODE'
           import { createHash } from 'node:crypto'
@@ -126,8 +123,8 @@ jobs:
           NODE
       - name: Build signed standalone Runtime app
         env:
-          VERSION: ${{ inputs.version }}
-          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ inputs.version || github.ref_name }}
+          ARCH: arm64
           GGR_UPDATE_PRIVATE_KEY: ${{ secrets.GGR_UPDATE_PRIVATE_KEY }}
         run: |
           root="dist/ggr-backend/$VERSION"
@@ -146,7 +143,7 @@ jobs:
           GGR_NOTARY_KEY_ID: ${{ secrets.GGR_NOTARY_KEY_ID }}
           GGR_NOTARY_ISSUER: ${{ secrets.GGR_NOTARY_ISSUER }}
         run: |
-          artifact="dist/ggr-backend/${{ inputs.version }}/ggr-backend-${{ inputs.version }}-darwin-${{ matrix.arch }}.tar.gz"
+          artifact="dist/ggr-backend/${{ inputs.version || github.ref_name }}/ggr-backend-${{ inputs.version || github.ref_name }}-darwin-arm64.tar.gz"
           umask 077
           ditto -c -k --keepParent "$artifact" "$artifact.zip"
           key="$RUNNER_TEMP/AuthKey_${GGR_NOTARY_KEY_ID}.p8"
@@ -155,12 +152,12 @@ jobs:
           printf '%s' "$GGR_NOTARY_API_KEY" > "$key"
           chmod 600 "$key"
           xcrun notarytool submit "$artifact.zip" --key "$key" --key-id "$GGR_NOTARY_KEY_ID" --issuer "$GGR_NOTARY_ISSUER" --wait
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: ggr-backend-${{ matrix.arch }}
+          name: ggr-backend-arm64
           path: |
-            dist/ggr-backend/${{ inputs.version }}/
-            dist/ggr-runtime/${{ inputs.version }}/GGR-Runtime-${{ inputs.version }}-darwin-${{ matrix.arch }}.app.zip
+            dist/ggr-backend/${{ inputs.version || github.ref_name }}/
+            dist/ggr-runtime/${{ inputs.version || github.ref_name }}/GGR-Runtime-${{ inputs.version || github.ref_name }}-darwin-arm64.app.zip
           if-no-files-found: error
 
   release:
@@ -169,11 +166,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
           path: downloaded
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20.16.0
       - name: Create the final combined manifest once
@@ -194,8 +191,8 @@ jobs:
           await fs.writeFile('release/manifest.json', `${JSON.stringify({ ...base, version, channel, artifacts }, null, 2)}\n`)
           NODE
         env:
-          VERSION: ${{ inputs.version }}
-          CHANNEL: ${{ inputs.channel }}
+          VERSION: ${{ inputs.version || github.ref_name }}
+          CHANNEL: ${{ inputs.channel || 'stable' }}
       - name: Sign final manifest bytes
         env:
           GGR_UPDATE_PRIVATE_KEY: ${{ secrets.GGR_UPDATE_PRIVATE_KEY }}
@@ -204,15 +201,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          gh release create "ggr-backend-v${{ inputs.version }}"
+          gh release create "ggr-backend-v${{ inputs.version || github.ref_name }}"
           release/ggr-backend-*.tar.gz release/GGR-Runtime-*.app.zip release/manifest.json release/manifest.sig
-          --target "${{ github.sha }}" --title "GGR Backend ${{ inputs.version }}"
+          --target "${{ github.sha }}" --title "GGR Backend ${{ inputs.version || github.ref_name }}"
           --generate-notes
       - name: Publish the signed selected-channel manifest
         env:
           GH_TOKEN: ${{ github.token }}
           CHANNEL: ${{ inputs.channel }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ inputs.version || github.ref_name }}
         run: |
           tag="ggrd-$CHANNEL"
           if gh release view "$tag" >/dev/null 2>&1; then

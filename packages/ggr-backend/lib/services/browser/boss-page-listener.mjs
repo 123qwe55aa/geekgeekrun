@@ -1,4 +1,4 @@
-import cheerio from 'cheerio'
+import * as cheerio from 'cheerio'
 
 const JOB_DETAIL = 'https://www.zhipin.com/wapi/zpgeek/job/detail.json'
 const NEGATIVE_REASONS = 'https://www.zhipin.com/wapi/zpgeek/negativefeedback/reasons.json'

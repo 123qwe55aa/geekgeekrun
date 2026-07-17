@@ -1,7 +1,7 @@
 // This module is deliberately limited to public release metadata. Signing keys
 // belong to the offline release process and must never be distributed to clients.
 export const RELEASE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAZ7McdxYF5TiZtfpsLXkJRr2UFkY2YNqdRp95TfJdHbw=
+MCowBQYDK2VwAyEAG44re9BTgJpfdqdPHhuDKTKzUNsVGcFWJwsIqN29eT0=
 -----END PUBLIC KEY-----`
 
 export const CHANNEL_MANIFEST_ENDPOINTS = Object.freeze({

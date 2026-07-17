@@ -32,6 +32,9 @@ try {
   assert.equal(bootstrap.version, '1.0.1', 'Runtime must embed the selected ggrd bootstrap version')
   const trustRoot = await fs.readFile(path.join(release, 'supervisor', 'lib', 'trust-root.mjs'), 'utf8')
   assert.match(trustRoot, /123qwe55aa\/geekgeekrun/, 'Runtime must use this repository as its signed update source')
+  const installer = await fs.readFile(path.join(repository, 'scripts', 'install-ggr-runtime.mjs'), 'utf8')
+  assert.match(installer, /const clientVersion = \/\^ggrd-/, 'Runtime installer must derive its client version from the embedded ggrd bootstrap')
+  assert.match(installer, /releaseDirectory: backend,\s+clientVersion,/, 'Runtime installer must provide its client version while validating the embedded backend')
 
   await execFile(process.execPath, ['scripts/build-ggr-runtime-app.mjs', '--release-dir', release, '--output-dir', app], { cwd: repository })
   const infoPlist = await fs.readFile(path.join(app, 'GGR Runtime.app', 'Contents', 'Info.plist'), 'utf8')

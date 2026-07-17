@@ -20,6 +20,8 @@ const options = parse(process.argv.slice(2))
 const metadata = JSON.parse(await fs.readFile(path.join(options.releaseDirectory, 'runtime-release.json'), 'utf8'))
 if (metadata?.format !== 1 || metadata.platform !== process.platform || metadata.arch !== process.arch) throw new Error('Runtime release is incompatible with this machine')
 if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(metadata.bootstrapVersion ?? '')) throw new Error('Runtime release has an invalid supervisor bootstrap version')
+const clientVersion = /^ggrd-(v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/.exec(metadata.bootstrapVersion)?.[1]
+if (!clientVersion) throw new Error('Runtime release has an invalid supervisor client version')
 const supervisor = path.resolve(options.releaseDirectory, metadata.supervisor)
 const backend = path.resolve(options.releaseDirectory, 'backend')
 if (!supervisor.startsWith(`${options.releaseDirectory}${path.sep}`) || !backend.startsWith(`${options.releaseDirectory}${path.sep}`)) throw new Error('Runtime release paths are unsafe')
@@ -31,7 +33,12 @@ const { createMigrationService } = await import(pathToFileURL(path.join(supervis
 const { installLaunchdSupervisor } = await import(pathToFileURL(path.join(supervisor, 'lib', 'launchd.mjs')).href)
 const runtimeDirectory = path.join(options.home, '.geekgeekrun')
 const versionStore = createVersionStore(runtimeDirectory)
-const service = createLocalReleaseService({ versionStore, releaseDirectory: backend, migrationService: createMigrationService({ runtimeDir: runtimeDirectory }) })
+const service = createLocalReleaseService({
+  versionStore,
+  releaseDirectory: backend,
+  clientVersion,
+  migrationService: createMigrationService({ runtimeDir: runtimeDirectory })
+})
 const manifest = await service.checkForUpdates()
 if (!await versionStore.current()) {
   const installation = await service.install()

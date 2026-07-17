@@ -31,9 +31,9 @@ jobs:
         pnpm install --filter packages/ui...
 
     - name: Build
-      env:
-        ELECTRON_MIRROR: https://github.com/electron/electron/releases
-      run: pnpm --filter packages/ui run build:make-dist-for-current-platform
+      run: |
+        sed -i '/^electronDownload:/,+1d' packages/ui/electron-builder.yml
+        pnpm --filter packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -76,9 +76,9 @@ jobs:
         pnpm install --filter packages/ui...
 
     - name: Build
-      env:
-        ELECTRON_MIRROR: https://github.com/electron/electron/releases
-      run: pnpm --filter packages/ui run build:make-dist-for-current-platform
+      run: |
+        sed -i '/^electronDownload:/,+1d' packages/ui/electron-builder.yml
+        pnpm --filter packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -114,9 +114,9 @@ jobs:
         pnpm install --filter packages/ui...
 
     - name: Build
-      env:
-        ELECTRON_MIRROR: https://github.com/electron/electron/releases
-      run: pnpm --filter packages/ui run build:make-dist-for-current-platform
+      run: |
+        sed -i '/^electronDownload:/,+1d' packages/ui/electron-builder.yml
+        pnpm --filter packages/ui run build:make-dist-for-current-platform
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4

@@ -33,6 +33,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --no-frozen-lockfile
+      - run: pnpm rebuild better-sqlite3
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
       - run: pnpm --filter @geekgeekrun/ggr-protocol test
       - run: pnpm --filter @geekgeekrun/ggr-backend test
@@ -55,6 +56,7 @@ jobs:
           architecture: arm64
           cache: pnpm
       - run: pnpm install --no-frozen-lockfile
+      - run: pnpm rebuild better-sqlite3
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
       # Timestamped codesigning makes final release bytes non-reproducible.
       # The signed manifest SHA-256 is the immutable release integrity check.

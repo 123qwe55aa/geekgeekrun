@@ -54,9 +54,8 @@ jobs:
           node-version: 22
           architecture: arm64
           cache: pnpm
-      - run: pnpm install --no-frozen-lockfile --ignore-scripts
+      - run: pnpm install --no-frozen-lockfile
       - run: pnpm --filter @geekgeekrun/sqlite-plugin run build
-      - run: cd node_modules/better-sqlite3 && npx node-gyp rebuild
       # Timestamped codesigning makes final release bytes non-reproducible.
       # The signed manifest SHA-256 is the immutable release integrity check.
       - name: Build timestamped signed release artifact

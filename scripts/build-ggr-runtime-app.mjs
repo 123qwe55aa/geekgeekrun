@@ -36,10 +36,13 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 NODE="$ROOT/Resources/runtime-release/supervisor/runtime/bin/node"
 INSTALLER="$ROOT/Resources/install-ggr-runtime.mjs"
 RELEASE="$ROOT/Resources/runtime-release"
-if "$NODE" "$INSTALLER" --release-dir "$RELEASE"; then
+RUNTIME_LOG_DIR="\${HOME}/.geekgeekrun/logs"
+INSTALL_LOG="$RUNTIME_LOG_DIR/runtime-installer.log"
+mkdir -p "$RUNTIME_LOG_DIR"
+if "$NODE" "$INSTALLER" --release-dir "$RELEASE" >> "$INSTALL_LOG" 2>&1; then
   /usr/bin/osascript -e 'display dialog "GGR Runtime 已安装并在后台运行。你现在可以打开 GeekGeekRun。" with title "GGR Runtime" buttons {"完成"} default button "完成"' || true
 else
-  /usr/bin/osascript -e 'display dialog "GGR Runtime 安装失败。请在 GeekGeekRun 的设置页查看诊断信息。" with title "GGR Runtime" buttons {"完成"} default button "完成" with icon stop' || true
+  /usr/bin/osascript -e 'display dialog "GGR Runtime 安装失败。诊断日志已写入 ~/.geekgeekrun/logs/runtime-installer.log。" with title "GGR Runtime" buttons {"完成"} default button "完成" with icon stop' || true
   exit 1
 fi
 `

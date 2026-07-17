@@ -39,6 +39,7 @@ try {
   assert.match(infoPlist, /<key>CFBundleShortVersionString<\/key><string>1\.0\.1<\/string>/, 'Runtime app version must follow ggrd')
   assert.match(launcher, /display dialog "GGR Runtime 已安装并在后台运行/, 'Runtime app must acknowledge successful installation')
   assert.match(launcher, /display dialog "GGR Runtime 安装失败/, 'Runtime app must surface installation failures')
+  assert.match(launcher, /runtime-installer\.log/, 'Runtime app must persist installer failures for diagnosis')
 } finally {
   await fs.rm(temporary, { recursive: true, force: true })
 }

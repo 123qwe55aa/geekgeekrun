@@ -378,7 +378,8 @@ try {
 }
 
 {
-  const delayedHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ggr-backend-peer-'))
+  // macOS limits Unix-domain socket paths; keep this test socket below that limit.
+  const delayedHome = await fs.mkdtemp('/tmp/ggr-backend-peer-')
   const paths = createRuntimePaths(delayedHome)
   const delayedBackend = await createBackendServer({
     socketPath: paths.backendSocket,

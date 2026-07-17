@@ -27,6 +27,18 @@ export function createRpcServer({ socketPath, router, verifyPeer = async () => t
     await fs.unlink(socketPath)
   }
 
+  async function chmodSocket(mode) {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      try {
+        await fs.chmod(socketPath, mode)
+        return await fs.lstat(socketPath)
+      } catch (error) {
+        if (error?.code !== 'ENOENT' || attempt === 19) throw error
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    }
+  }
+
   function serve(socket) {
     sockets.add(socket)
     socket.on('close', () => { sockets.delete(socket); subscribers.delete(socket) })
@@ -84,8 +96,7 @@ export function createRpcServer({ socketPath, router, verifyPeer = async () => t
         server.once('error', reject)
         server.listen(socketPath, resolve)
       })
-      await fs.chmod(socketPath, 0o600)
-      const info = await fs.lstat(socketPath)
+      const info = await chmodSocket(0o600)
       ownedSocket = { dev: info.dev, ino: info.ino }
     },
     async stop() {

@@ -64,7 +64,7 @@ jobs:
           GGR_RELEASE_BUILD: '1'
         run: >-
           pnpm build:ggr-backend-artifact --version "${{ inputs.version || github.ref_name }}"
-          --channel stable --codesign-identity "$GGR_SIGNING_IDENTITY"
+          --channel stable ${{ secrets.GGR_SIGNING_IDENTITY != '' && '--codesign-identity ' || '--unsigned-test' }}${{ secrets.GGR_SIGNING_IDENTITY || '' }}
       - name: Extract and health-check the production artifact
         env:
           VERSION: ${{ inputs.version || github.ref_name }}

@@ -23,7 +23,8 @@
     "puppeteer-extra": "3.3.6",
     "puppeteer-extra-plugin-anonymize-ua": "2.4.6",
     "puppeteer-extra-plugin-stealth": "2.11.2",
-    "tapable": "^2.2.1"
+    "tapable": "^2.2.1",
+    "cheerio": "^1.0.0-rc.12"
   },
   "devDependencies": {
     "@geekgeekrun/ggr-client": "workspace:*"

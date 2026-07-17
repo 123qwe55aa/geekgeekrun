@@ -37,7 +37,7 @@ jobs:
       with:
         name: binary-geekgeekrun-ui-windows-x64-${{ github.sha }}
         path: |
-          ${{ github.workspace }}/packages/ui/dist/*.exe
+          ${{ github.workspace }}/packages/ui/dist/*
         overwrite: true
 
   build_on_macos:
@@ -79,7 +79,7 @@ jobs:
       with:
         name: binary-geekgeekrun-ui-macos-${{ matrix.platform.arch }}-${{ github.sha }}
         path: |
-          ${{ github.workspace }}/packages/ui/dist/*.dmg
+          ${{ github.workspace }}/packages/ui/dist/*
         overwrite: true
 
   build_on_linux:
@@ -114,8 +114,7 @@ jobs:
       with:
         name: binary-geekgeekrun-ui-linux-x64-${{ github.sha }}
         path: |
-          ${{ github.workspace }}/packages/ui/dist/*.deb
-        overwrite: true
+          ${{ github.workspace }}/packages/ui/dist/*
 
   release:
     runs-on: ubuntu-latest
